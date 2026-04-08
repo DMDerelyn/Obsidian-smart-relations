@@ -1,0 +1,419 @@
+import { App, TFile } from 'obsidian';
+import { SmartRelationsSettings } from '../settings';
+import { IndexCache } from '../utils/cache';
+import { parseFrontmatter } from '../utils/frontmatter';
+import { UuidIndexer } from './UuidIndexer';
+import { TermIndexer } from './TermIndexer';
+import { TagIndexer } from './TagIndexer';
+import { NgramIndexer } from './NgramIndexer';
+import { RelationGraphBuilder } from './RelationGraphBuilder';
+import { DocumentStatsBuilder } from './DocumentStats';
+import {
+  UuidIndex, TermIndex, TagCooccurrence, NgramIndex,
+  RelationGraph, DocumentStats, CorpusStats
+} from './types';
+
+// Index filenames
+const INDEX_FILES = {
+  uuid: '_uuid_index.json',
+  term: '_term_index.json',
+  tag: '_tag_cooccurrence.json',
+  ngram: '_ngram_index.json',
+  graph: '_relation_graph.json',
+  docStats: '_document_stats.json',
+  corpusStats: '_corpus_stats.json',
+} as const;
+
+export type IndexProgressCallback = (message: string, progress?: number) => void;
+
+export class IndexManager {
+  // Index data
+  private uuidIndex: UuidIndex = {};
+  private termIndex: TermIndex = {};
+  private tagCooccurrence: TagCooccurrence = {};
+  private ngramIndex: NgramIndex = {};
+  private relationGraph: RelationGraph = {};
+  private documentStats: DocumentStats = {};
+  private corpusStats: CorpusStats = { totalDocuments: 0, avgDocumentLength: 0, totalTerms: 0 };
+
+  // Indexers
+  private uuidIndexer: UuidIndexer;
+  private termIndexer: TermIndexer;
+  private tagIndexer: TagIndexer;
+  private ngramIndexer: NgramIndexer;
+  private graphBuilder: RelationGraphBuilder;
+  private statsBuilder: DocumentStatsBuilder;
+
+  // Debounce
+  private pendingChanges: Map<string, { file: TFile; type: 'create' | 'modify' | 'delete' }> = new Map();
+  private debounceTimer: number | null = null;
+  private readonly DEBOUNCE_MS = 500;
+
+  // State
+  private isIndexing = false;
+  private lastIndexTime: number | null = null;
+  private indexLoaded = false;
+
+  constructor(
+    private app: App,
+    private settings: SmartRelationsSettings,
+    private cache: IndexCache
+  ) {
+    this.uuidIndexer = new UuidIndexer(app);
+    this.termIndexer = new TermIndexer(app, settings.maxTokenizationLength);
+    this.tagIndexer = new TagIndexer();
+    this.ngramIndexer = new NgramIndexer(settings.ngramSize);
+    this.graphBuilder = new RelationGraphBuilder(app);
+    this.statsBuilder = new DocumentStatsBuilder();
+  }
+
+  // ==================== Full Rebuild ====================
+
+  /**
+   * Rebuild all indexes from scratch.
+   * Processes files in batches to avoid freezing the UI.
+   */
+  async rebuildAll(onProgress?: IndexProgressCallback): Promise<void> {
+    if (this.isIndexing) {
+      console.warn('Smart Relations: Already indexing, skipping rebuild');
+      return;
+    }
+
+    this.isIndexing = true;
+    const startTime = Date.now();
+
+    try {
+      onProgress?.('Starting full reindex...', 0);
+
+      // Step 1: Build UUID index
+      onProgress?.('Building UUID index...', 0.1);
+      const { index: uuidIndex, warnings: uuidWarnings } = await this.uuidIndexer.buildIndex(this.settings.excludedFolders);
+      this.uuidIndex = uuidIndex;
+      for (const w of uuidWarnings) console.warn(`Smart Relations: ${w}`);
+
+      const totalFiles = Object.keys(uuidIndex).length;
+      onProgress?.(`UUID index: ${totalFiles} notes indexed`, 0.2);
+
+      // Step 2: Build term index (most expensive -- reads file content)
+      onProgress?.('Building term index...', 0.3);
+      const { termIndex, corpusStats } = await this.termIndexer.buildIndex(uuidIndex);
+      this.termIndex = termIndex;
+      this.corpusStats = corpusStats;
+      onProgress?.(`Term index: ${Object.keys(termIndex).length} unique terms`, 0.5);
+
+      // Step 3: Build tag co-occurrence
+      onProgress?.('Building tag co-occurrence...', 0.6);
+      this.tagCooccurrence = this.tagIndexer.buildIndex(uuidIndex);
+
+      // Step 4: Build n-gram index (uses title + path)
+      onProgress?.('Building n-gram index...', 0.7);
+      const ngramDocuments = new Map<string, string>();
+      for (const [uuid, entry] of Object.entries(uuidIndex)) {
+        ngramDocuments.set(uuid, `${entry.title} ${entry.path}`);
+      }
+      this.ngramIndex = this.ngramIndexer.buildIndex(ngramDocuments);
+
+      // Step 5: Build relation graph
+      onProgress?.('Building relation graph...', 0.8);
+      const { graph, warnings: graphWarnings } = this.graphBuilder.buildGraph(uuidIndex);
+      this.relationGraph = graph;
+      for (const w of graphWarnings) console.warn(`Smart Relations: ${w}`);
+
+      // Step 6: Build document stats
+      onProgress?.('Computing document statistics...', 0.9);
+      this.documentStats = this.statsBuilder.buildAllStats(
+        termIndex,
+        corpusStats,
+        (uuid) => uuidIndex[uuid]?.lastModified ?? Date.now()
+      );
+
+      // Save all indexes
+      await this.saveAllIndexes();
+
+      this.lastIndexTime = Date.now();
+      this.indexLoaded = true;
+
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      onProgress?.(`Indexing complete: ${totalFiles} notes in ${elapsed}s`, 1);
+      console.log(`Smart Relations: Full reindex completed — ${totalFiles} notes, ${Object.keys(termIndex).length} terms in ${elapsed}s`);
+
+    } catch (e) {
+      console.error('Smart Relations: Reindex failed:', e);
+      onProgress?.('Indexing failed — check console for details', 0);
+    } finally {
+      this.isIndexing = false;
+    }
+  }
+
+  // ==================== Incremental Updates ====================
+
+  /**
+   * Handle a file change event. Debounces rapid changes.
+   */
+  handleFileChange(file: TFile, changeType: 'create' | 'modify' | 'delete'): void {
+    if (!this.indexLoaded) return;
+    if (file.extension !== 'md') return;
+
+    // Skip excluded folders
+    if (this.settings.excludedFolders.some(f => file.path.startsWith(f))) return;
+
+    this.pendingChanges.set(file.path, { file, type: changeType });
+    this.scheduleFlush();
+  }
+
+  /**
+   * Handle a file rename. Updates the path in UUID index.
+   */
+  handleFileRename(file: TFile, oldPath: string): void {
+    if (!this.indexLoaded) return;
+    if (file.extension !== 'md') return;
+
+    // Find UUID by old path
+    for (const [, entry] of Object.entries(this.uuidIndex)) {
+      if (entry.path === oldPath) {
+        entry.path = file.path;
+        entry.title = file.basename;
+        entry.lastModified = file.stat.mtime;
+        // Save just the UUID index
+        void this.cache.saveIndex(INDEX_FILES.uuid, this.uuidIndex);
+        break;
+      }
+    }
+  }
+
+  private scheduleFlush(): void {
+    if (this.debounceTimer !== null) {
+      window.clearTimeout(this.debounceTimer);
+    }
+    this.debounceTimer = window.setTimeout(() => {
+      void this.flushPendingChanges();
+    }, this.DEBOUNCE_MS);
+  }
+
+  private async flushPendingChanges(): Promise<void> {
+    if (this.pendingChanges.size === 0) return;
+    if (this.isIndexing) {
+      // Retry after current indexing completes
+      this.scheduleFlush();
+      return;
+    }
+
+    const changes = new Map(this.pendingChanges);
+    this.pendingChanges.clear();
+    this.debounceTimer = null;
+
+    this.isIndexing = true;
+    try {
+      for (const [path, { file, type }] of changes) {
+        switch (type) {
+          case 'delete':
+            this.handleDelete(path);
+            break;
+          case 'create':
+          case 'modify':
+            await this.handleCreateOrModify(file);
+            break;
+        }
+      }
+
+      // Rebuild tag co-occurrence and doc stats (they depend on full index state)
+      this.tagCooccurrence = this.tagIndexer.buildIndex(this.uuidIndex);
+      this.documentStats = this.statsBuilder.buildAllStats(
+        this.termIndex,
+        this.corpusStats,
+        (uuid) => this.uuidIndex[uuid]?.lastModified ?? Date.now()
+      );
+
+      // Recalculate corpus stats
+      let totalWords = 0;
+      const allTerms = new Set<string>();
+      for (const [term, postings] of Object.entries(this.termIndex)) {
+        allTerms.add(term);
+        if (postings) {
+          for (const p of postings) {
+            totalWords += p.tf;
+          }
+        }
+      }
+      const totalDocs = Object.keys(this.uuidIndex).length;
+      this.corpusStats = {
+        totalDocuments: totalDocs,
+        avgDocumentLength: totalDocs > 0 ? totalWords / totalDocs : 0,
+        totalTerms: allTerms.size,
+      };
+
+      await this.saveAllIndexes();
+      this.lastIndexTime = Date.now();
+    } catch (e) {
+      console.error('Smart Relations: Incremental update failed:', e);
+    } finally {
+      this.isIndexing = false;
+    }
+  }
+
+  private handleDelete(path: string): void {
+    // Find UUID by path
+    let deletedUuid: string | null = null;
+    for (const [uuid, entry] of Object.entries(this.uuidIndex)) {
+      if (entry.path === path) {
+        deletedUuid = uuid;
+        break;
+      }
+    }
+
+    if (!deletedUuid) return;
+
+    // Remove from all indexes
+    this.uuidIndexer.removeFile(this.uuidIndex, deletedUuid);
+    this.termIndexer.removeDocument(this.termIndex, deletedUuid);
+    this.ngramIndexer.removeDocument(this.ngramIndex, deletedUuid);
+    this.graphBuilder.removeNode(this.relationGraph, deletedUuid);
+    delete this.documentStats[deletedUuid];
+
+    console.log(`Smart Relations: Removed deleted file from index (UUID: ${deletedUuid})`);
+  }
+
+  private async handleCreateOrModify(file: TFile): Promise<void> {
+    const cache = this.app.metadataCache.getFileCache(file);
+    if (!cache) return;
+
+    const result = this.uuidIndexer.indexSingleFile(file, cache);
+    if (!result) return; // No valid UUID
+
+    const { uuid, entry } = result;
+
+    // Remove old entries if this UUID was already indexed
+    if (this.uuidIndex[uuid]) {
+      this.termIndexer.removeDocument(this.termIndex, uuid);
+      this.ngramIndexer.removeDocument(this.ngramIndex, uuid);
+      this.graphBuilder.removeNode(this.relationGraph, uuid);
+      delete this.documentStats[uuid];
+    }
+
+    // Update UUID index
+    this.uuidIndexer.updateFile(this.uuidIndex, uuid, entry);
+
+    // Re-index term postings
+    const content = await this.app.vault.cachedRead(file);
+    const { postings } = this.termIndexer.indexSingleDocument(uuid, content);
+    for (const [term, posting] of postings) {
+      const existing = this.termIndex[term];
+      if (!existing) {
+        this.termIndex[term] = [];
+      }
+      // After the above guard, we know the array exists
+      this.termIndex[term]!.push(posting);
+    }
+
+    // Re-index n-grams
+    const ngramText = `${entry.title} ${entry.path}`;
+    const ngramDocs = new Map<string, string>();
+    ngramDocs.set(uuid, ngramText);
+    const newNgrams = this.ngramIndexer.buildIndex(ngramDocs);
+    for (const [ngram, uuids] of Object.entries(newNgrams)) {
+      if (!uuids) continue;
+      const existingNgram = this.ngramIndex[ngram];
+      if (!existingNgram) {
+        this.ngramIndex[ngram] = [];
+      }
+      this.ngramIndex[ngram]!.push(...uuids);
+    }
+
+    // Re-index relation graph edges for this file
+    const fm = parseFrontmatter(cache);
+    if (fm) {
+      for (const rel of fm.related) {
+        if (this.uuidIndex[rel.uuid]) {
+          this.graphBuilder.addEdge(this.relationGraph, uuid, rel.uuid, rel.rel, 1.0);
+          this.graphBuilder.addEdge(this.relationGraph, rel.uuid, uuid, rel.rel, 1.0);
+        }
+      }
+    }
+
+    console.log(`Smart Relations: Updated index for "${file.path}" (UUID: ${uuid})`);
+  }
+
+  // ==================== Persistence ====================
+
+  async loadAllIndexes(): Promise<boolean> {
+    try {
+      const [uuid, term, tag, ngram, graph, docStats, corpus] = await Promise.all([
+        this.cache.loadIndex<UuidIndex>(INDEX_FILES.uuid),
+        this.cache.loadIndex<TermIndex>(INDEX_FILES.term),
+        this.cache.loadIndex<TagCooccurrence>(INDEX_FILES.tag),
+        this.cache.loadIndex<NgramIndex>(INDEX_FILES.ngram),
+        this.cache.loadIndex<RelationGraph>(INDEX_FILES.graph),
+        this.cache.loadIndex<DocumentStats>(INDEX_FILES.docStats),
+        this.cache.loadIndex<CorpusStats>(INDEX_FILES.corpusStats),
+      ]);
+
+      if (uuid && term) {
+        this.uuidIndex = uuid;
+        this.termIndex = term;
+        this.tagCooccurrence = tag ?? {};
+        this.ngramIndex = ngram ?? {};
+        this.relationGraph = graph ?? {};
+        this.documentStats = docStats ?? {};
+        this.corpusStats = corpus ?? { totalDocuments: 0, avgDocumentLength: 0, totalTerms: 0 };
+        this.indexLoaded = true;
+        this.lastIndexTime = Date.now();
+        console.log(`Smart Relations: Loaded indexes from disk (${Object.keys(this.uuidIndex).length} notes)`);
+        return true;
+      }
+
+      return false;
+    } catch (e) {
+      console.warn('Smart Relations: Failed to load indexes from disk:', e);
+      return false;
+    }
+  }
+
+  async saveAllIndexes(): Promise<void> {
+    await Promise.all([
+      this.cache.saveIndex(INDEX_FILES.uuid, this.uuidIndex),
+      this.cache.saveIndex(INDEX_FILES.term, this.termIndex),
+      this.cache.saveIndex(INDEX_FILES.tag, this.tagCooccurrence),
+      this.cache.saveIndex(INDEX_FILES.ngram, this.ngramIndex),
+      this.cache.saveIndex(INDEX_FILES.graph, this.relationGraph),
+      this.cache.saveIndex(INDEX_FILES.docStats, this.documentStats),
+      this.cache.saveIndex(INDEX_FILES.corpusStats, this.corpusStats),
+    ]);
+  }
+
+  // ==================== Accessors ====================
+
+  getUuidIndex(): UuidIndex { return this.uuidIndex; }
+  getTermIndex(): TermIndex { return this.termIndex; }
+  getTagCooccurrence(): TagCooccurrence { return this.tagCooccurrence; }
+  getNgramIndex(): NgramIndex { return this.ngramIndex; }
+  getRelationGraph(): RelationGraph { return this.relationGraph; }
+  getDocumentStats(): DocumentStats { return this.documentStats; }
+  getCorpusStats(): CorpusStats { return this.corpusStats; }
+
+  getUuidForFile(file: TFile): string | null {
+    for (const [uuid, entry] of Object.entries(this.uuidIndex)) {
+      if (entry.path === file.path) return uuid;
+    }
+    return null;
+  }
+
+  isLoaded(): boolean { return this.indexLoaded; }
+  isCurrentlyIndexing(): boolean { return this.isIndexing; }
+
+  getLastIndexTime(): number | null { return this.lastIndexTime; }
+  getNoteCount(): number { return Object.keys(this.uuidIndex).length; }
+
+  /**
+   * Get dirty files (modified since last index).
+   */
+  getDirtyFiles(): TFile[] {
+    const files = this.app.vault.getMarkdownFiles();
+    return files.filter(file => {
+      const uuid = this.getUuidForFile(file);
+      if (!uuid) return true; // New file, not indexed
+      const entry = this.uuidIndex[uuid];
+      if (!entry) return true;
+      return file.stat.mtime > entry.lastModified;
+    });
+  }
+}

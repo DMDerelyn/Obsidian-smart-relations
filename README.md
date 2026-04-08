@@ -90,7 +90,30 @@ The plugin can read both formats regardless of the setting. The setting only con
 
 ## Installation
 
-### From Source (Manual Build)
+### Community Plugin Browser (Recommended)
+
+> **Note:** Community plugin submission is pending. Once accepted, this will be the easiest way to install.
+
+1. Open Obsidian Settings
+2. Go to **Community plugins** and disable **Restricted mode** if needed
+3. Click **Browse** and search for **Smart Relations**
+4. Click **Install**, then **Enable**
+
+No build tools, no dependencies — it just works.
+
+### Manual Download (Available Now)
+
+1. Go to the [latest GitHub Release](https://github.com/DMDerelyn/Obsidian-smart-relations/releases/latest)
+2. Download three files: `main.js`, `manifest.json`, and `styles.css`
+3. In your vault, create the folder `.obsidian/plugins/smart-relations/`
+4. Place the three downloaded files into that folder
+5. Open Obsidian Settings > **Community plugins** > Enable **Smart Relations**
+
+The plugin will automatically build its indexes the first time it loads. You'll see a notice: "Smart Relations: Building index for the first time..."
+
+### From Source (For Developers)
+
+If you want to modify the plugin or contribute:
 
 1. Clone the repository into your vault's plugins folder:
    ```bash
@@ -105,12 +128,7 @@ The plugin can read both formats regardless of the setting. The setting only con
    npm run build
    ```
 
-3. Enable the plugin:
-   - Open Obsidian Settings
-   - Go to **Community plugins**
-   - Find **Smart Relations** in the list and toggle it on
-
-4. The plugin will automatically build its indexes the first time it loads. You'll see a notice: "Smart Relations: Building index for the first time..."
+3. Enable the plugin in Obsidian Settings > **Community plugins**
 
 ### Development Mode
 
@@ -189,6 +207,24 @@ Open **Settings > Smart Relations** to configure:
 | **N-gram size** | 3 | Character n-gram size for fuzzy matching (2–5) |
 
 **Tip:** The four scoring weights should sum to 1.0 for balanced results. If you primarily organize by tags, increase the Jaccard weight. If your notes have rich `related:` fields, increase graph proximity.
+
+## Claude Code Integration
+
+Smart Relations indexes are designed to work with [Claude Code](https://claude.ai/code) for RAG-style queries over your vault. The plugin builds the indexes; Claude Code reads them to efficiently find and answer questions about your notes.
+
+See `CLAUDE.md` in this repository for detailed instructions on how Claude Code uses the indexes.
+
+### CLI Query Tool (Optional)
+
+A standalone CLI query tool is included for users who have Node.js installed. This is **entirely optional** — the plugin works without it, and Claude Code can read the index files directly.
+
+```bash
+node query.mjs /path/to/vault "your search query" --top 10
+```
+
+The tool performs BM25 + tag + term overlap scoring against the pre-built indexes and outputs ranked results. Add `--json` for machine-readable output, or `--tags "tag1,tag2"` to boost results matching specific tags.
+
+This tool has zero dependencies — it embeds its own Porter stemmer and stopword list.
 
 ## Architecture
 

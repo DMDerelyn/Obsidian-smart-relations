@@ -241,7 +241,7 @@ var UuidIndexer = class {
   isExcluded(file, excludedFolders) {
     return excludedFolders.some((folder) => {
       const normalized = folder.endsWith("/") ? folder : folder + "/";
-      return file.path.startsWith(normalized) || file.path.startsWith(folder);
+      return file.path.startsWith(normalized);
     });
   }
 };
@@ -749,9 +749,10 @@ function tokenize(text) {
 }
 function tokenizeWithPositions(text) {
   const results = [];
+  const stripped = stripMarkdown(text);
   const wordRegex = /[a-zA-Z0-9]+/g;
   let match;
-  while ((match = wordRegex.exec(text)) !== null) {
+  while ((match = wordRegex.exec(stripped)) !== null) {
     const raw = match[0].toLowerCase();
     if (raw.length < 2) {
       continue;
@@ -1214,6 +1215,10 @@ var IndexManager = class {
     this.relationGraph = {};
     this.documentStats = {};
     this.corpusStats = { totalDocuments: 0, avgDocumentLength: 0, totalTerms: 0 };
+    // Reverse map for O(1) path -> uuid lookups
+    this.pathToUuid = /* @__PURE__ */ new Map();
+    // Cached document term sets for scoring (avoids per-query rebuild)
+    this.documentTermSets = /* @__PURE__ */ new Map();
     // Debounce
     this.pendingChanges = /* @__PURE__ */ new Map();
     this.debounceTimer = null;
@@ -1275,8 +1280,11 @@ var IndexManager = class {
           return (_b = (_a = uuidIndex[uuid]) == null ? void 0 : _a.lastModified) != null ? _b : Date.now();
         }
       );
+      this.rebuildPathMap();
+      this.rebuildDocumentTermSets();
+      this.corpusStats.lastIndexedAt = Date.now();
       await this.saveAllIndexes();
-      this.lastIndexTime = Date.now();
+      this.lastIndexTime = this.corpusStats.lastIndexedAt;
       this.indexLoaded = true;
       const elapsed = ((Date.now() - startTime) / 1e3).toFixed(1);
       onProgress == null ? void 0 : onProgress(`Indexing complete: ${totalFiles} notes in ${elapsed}s`, 1);
@@ -1295,7 +1303,10 @@ var IndexManager = class {
   handleFileChange(file, changeType) {
     if (!this.indexLoaded) return;
     if (file.extension !== "md") return;
-    if (this.settings.excludedFolders.some((f) => file.path.startsWith(f))) return;
+    if (this.settings.excludedFolders.some((f) => {
+      const normalized = f.endsWith("/") ? f : f + "/";
+      return file.path.startsWith(normalized);
+    })) return;
     this.pendingChanges.set(file.path, { file, type: changeType });
     this.scheduleFlush();
   }
@@ -1348,14 +1359,6 @@ var IndexManager = class {
         }
       }
       this.tagCooccurrence = this.tagIndexer.buildIndex(this.uuidIndex);
-      this.documentStats = this.statsBuilder.buildAllStats(
-        this.termIndex,
-        this.corpusStats,
-        (uuid) => {
-          var _a, _b;
-          return (_b = (_a = this.uuidIndex[uuid]) == null ? void 0 : _a.lastModified) != null ? _b : Date.now();
-        }
-      );
       let totalWords = 0;
       const allTerms = /* @__PURE__ */ new Set();
       for (const [term, postings] of Object.entries(this.termIndex)) {
@@ -1372,8 +1375,17 @@ var IndexManager = class {
         avgDocumentLength: totalDocs > 0 ? totalWords / totalDocs : 0,
         totalTerms: allTerms.size
       };
+      this.documentStats = this.statsBuilder.buildAllStats(
+        this.termIndex,
+        this.corpusStats,
+        (uuid) => {
+          var _a, _b;
+          return (_b = (_a = this.uuidIndex[uuid]) == null ? void 0 : _a.lastModified) != null ? _b : Date.now();
+        }
+      );
+      this.corpusStats.lastIndexedAt = Date.now();
       await this.saveAllIndexes();
-      this.lastIndexTime = Date.now();
+      this.lastIndexTime = this.corpusStats.lastIndexedAt;
     } catch (e) {
       console.error("Smart Relations: Incremental update failed:", e);
     } finally {
@@ -1381,14 +1393,10 @@ var IndexManager = class {
     }
   }
   handleDelete(path) {
-    let deletedUuid = null;
-    for (const [uuid, entry] of Object.entries(this.uuidIndex)) {
-      if (entry.path === path) {
-        deletedUuid = uuid;
-        break;
-      }
-    }
+    var _a;
+    const deletedUuid = (_a = this.pathToUuid.get(path)) != null ? _a : null;
     if (!deletedUuid) return;
+    this.pathToUuid.delete(path);
     this.uuidIndexer.removeFile(this.uuidIndex, deletedUuid);
     this.termIndexer.removeDocument(this.termIndex, deletedUuid);
     this.ngramIndexer.removeDocument(this.ngramIndex, deletedUuid);
@@ -1400,15 +1408,30 @@ var IndexManager = class {
     const cache = this.app.metadataCache.getFileCache(file);
     if (!cache) return;
     const result = this.uuidIndexer.indexSingleFile(file, cache);
-    if (!result) return;
+    if (!result) {
+      const oldUuid = this.pathToUuid.get(file.path);
+      if (oldUuid) {
+        this.uuidIndexer.removeFile(this.uuidIndex, oldUuid);
+        this.termIndexer.removeDocument(this.termIndex, oldUuid);
+        this.ngramIndexer.removeDocument(this.ngramIndex, oldUuid);
+        this.graphBuilder.removeNode(this.relationGraph, oldUuid);
+        delete this.documentStats[oldUuid];
+        this.documentTermSets.delete(oldUuid);
+        this.pathToUuid.delete(file.path);
+        console.warn(`Smart Relations: Note lost its UUID, removed from index: "${file.path}"`);
+      }
+      return;
+    }
     const { uuid, entry } = result;
     if (this.uuidIndex[uuid]) {
       this.termIndexer.removeDocument(this.termIndex, uuid);
       this.ngramIndexer.removeDocument(this.ngramIndex, uuid);
       this.graphBuilder.removeNode(this.relationGraph, uuid);
       delete this.documentStats[uuid];
+      this.documentTermSets.delete(uuid);
     }
     this.uuidIndexer.updateFile(this.uuidIndex, uuid, entry);
+    this.pathToUuid.set(entry.path, uuid);
     const content = await this.app.vault.cachedRead(file);
     const { postings } = this.termIndexer.indexSingleDocument(uuid, content);
     for (const [term, posting] of postings) {
@@ -1418,6 +1441,7 @@ var IndexManager = class {
       }
       this.termIndex[term].push(posting);
     }
+    this.documentTermSets.set(uuid, new Set(postings.keys()));
     const ngramText = `${entry.title} ${entry.path}`;
     const ngramDocs = /* @__PURE__ */ new Map();
     ngramDocs.set(uuid, ngramText);
@@ -1443,6 +1467,7 @@ var IndexManager = class {
   }
   // ==================== Persistence ====================
   async loadAllIndexes() {
+    var _a;
     try {
       const [uuid, term, tag, ngram, graph, docStats, corpus] = await Promise.all([
         this.cache.loadIndex(INDEX_FILES.uuid),
@@ -1461,8 +1486,10 @@ var IndexManager = class {
         this.relationGraph = graph != null ? graph : {};
         this.documentStats = docStats != null ? docStats : {};
         this.corpusStats = corpus != null ? corpus : { totalDocuments: 0, avgDocumentLength: 0, totalTerms: 0 };
+        this.rebuildPathMap();
+        this.rebuildDocumentTermSets();
         this.indexLoaded = true;
-        this.lastIndexTime = Date.now();
+        this.lastIndexTime = (_a = this.corpusStats.lastIndexedAt) != null ? _a : null;
         console.log(`Smart Relations: Loaded indexes from disk (${Object.keys(this.uuidIndex).length} notes)`);
         return true;
       }
@@ -1505,11 +1532,12 @@ var IndexManager = class {
   getCorpusStats() {
     return this.corpusStats;
   }
+  getDocumentTermSets() {
+    return this.documentTermSets;
+  }
   getUuidForFile(file) {
-    for (const [uuid, entry] of Object.entries(this.uuidIndex)) {
-      if (entry.path === file.path) return uuid;
-    }
-    return null;
+    var _a;
+    return (_a = this.pathToUuid.get(file.path)) != null ? _a : null;
   }
   isLoaded() {
     return this.indexLoaded;
@@ -1522,6 +1550,42 @@ var IndexManager = class {
   }
   getNoteCount() {
     return Object.keys(this.uuidIndex).length;
+  }
+  /**
+   * Rebuild the reverse path -> uuid map from the UUID index.
+   */
+  rebuildPathMap() {
+    this.pathToUuid.clear();
+    for (const [uuid, entry] of Object.entries(this.uuidIndex)) {
+      this.pathToUuid.set(entry.path, uuid);
+    }
+  }
+  /**
+   * Rebuild cached document term sets from the term index.
+   */
+  rebuildDocumentTermSets() {
+    this.documentTermSets.clear();
+    for (const [term, postings] of Object.entries(this.termIndex)) {
+      if (!postings) continue;
+      for (const posting of postings) {
+        let termSet = this.documentTermSets.get(posting.uuid);
+        if (!termSet) {
+          termSet = /* @__PURE__ */ new Set();
+          this.documentTermSets.set(posting.uuid, termSet);
+        }
+        termSet.add(term);
+      }
+    }
+  }
+  /**
+   * Clean up timers. Call from plugin onunload().
+   */
+  destroy() {
+    if (this.debounceTimer !== null) {
+      window.clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    this.pendingChanges.clear();
   }
   /**
    * Get dirty files (modified since last index).
@@ -1757,7 +1821,7 @@ var CombinedScorer = class {
     const jaccardScorer = new JaccardScorer(uuidIndex);
     const jaccardScores = sourceTags.length > 0 ? jaccardScorer.scoreByTags(sourceTags) : /* @__PURE__ */ new Map();
     const sourceTermSet = new Set(queryTerms);
-    const documentTermSets = this.buildDocumentTermSets(termIndex);
+    const documentTermSets = this.indexes.getDocumentTermSets();
     const termOverlapScores = sourceTermSet.size > 0 ? jaccardScorer.scoreByTermOverlap(sourceTermSet, documentTermSets) : /* @__PURE__ */ new Map();
     const graphScores = /* @__PURE__ */ new Map();
     if (sourceUuid && relationGraph) {
@@ -1837,25 +1901,6 @@ var CombinedScorer = class {
       normalized.set(uuid, (score - min) / range);
     }
     return normalized;
-  }
-  /**
-   * Build per-document term sets from the term index.
-   * Used for term overlap (Jaccard on vocabulary).
-   */
-  buildDocumentTermSets(termIndex) {
-    const docTerms = /* @__PURE__ */ new Map();
-    for (const [term, postings] of Object.entries(termIndex)) {
-      if (!postings) continue;
-      for (const posting of postings) {
-        let termSet = docTerms.get(posting.uuid);
-        if (!termSet) {
-          termSet = /* @__PURE__ */ new Set();
-          docTerms.set(posting.uuid, termSet);
-        }
-        termSet.add(term);
-      }
-    }
-    return docTerms;
   }
 };
 
@@ -2083,6 +2128,7 @@ var SmartRelationsPlugin = class extends import_obsidian7.Plugin {
     this.updateStatusBarDefault();
   }
   onunload() {
+    this.indexManager.destroy();
     console.log("Smart Relations: unloading plugin");
   }
   async loadSettings() {

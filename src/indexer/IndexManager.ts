@@ -47,6 +47,9 @@ export class IndexManager {
   // Reverse map for O(1) path -> uuid lookups
   private pathToUuid: Map<string, string> = new Map();
 
+  // Cached document term sets for scoring (avoids per-query rebuild)
+  private documentTermSets: Map<string, Set<string>> = new Map();
+
   // Debounce
   private pendingChanges: Map<string, { file: TFile; type: 'create' | 'modify' | 'delete' }> = new Map();
   private debounceTimer: number | null = null;
@@ -130,13 +133,15 @@ export class IndexManager {
         (uuid) => uuidIndex[uuid]?.lastModified ?? Date.now()
       );
 
-      // Build reverse path map
+      // Build reverse path map and document term sets cache
       this.rebuildPathMap();
+      this.rebuildDocumentTermSets();
 
-      // Save all indexes
+      // Persist timestamp in corpus stats and save all indexes
+      this.corpusStats.lastIndexedAt = Date.now();
       await this.saveAllIndexes();
 
-      this.lastIndexTime = Date.now();
+      this.lastIndexTime = this.corpusStats.lastIndexedAt;
       this.indexLoaded = true;
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -258,8 +263,9 @@ export class IndexManager {
         (uuid) => this.uuidIndex[uuid]?.lastModified ?? Date.now()
       );
 
+      this.corpusStats.lastIndexedAt = Date.now();
       await this.saveAllIndexes();
-      this.lastIndexTime = Date.now();
+      this.lastIndexTime = this.corpusStats.lastIndexedAt;
     } catch (e) {
       console.error('Smart Relations: Incremental update failed:', e);
     } finally {
@@ -289,7 +295,21 @@ export class IndexManager {
     if (!cache) return;
 
     const result = this.uuidIndexer.indexSingleFile(file, cache);
-    if (!result) return; // No valid UUID
+    if (!result) {
+      // Note has no valid UUID — clean up old entries if it was previously indexed
+      const oldUuid = this.pathToUuid.get(file.path);
+      if (oldUuid) {
+        this.uuidIndexer.removeFile(this.uuidIndex, oldUuid);
+        this.termIndexer.removeDocument(this.termIndex, oldUuid);
+        this.ngramIndexer.removeDocument(this.ngramIndex, oldUuid);
+        this.graphBuilder.removeNode(this.relationGraph, oldUuid);
+        delete this.documentStats[oldUuid];
+        this.documentTermSets.delete(oldUuid);
+        this.pathToUuid.delete(file.path);
+        console.warn(`Smart Relations: Note lost its UUID, removed from index: "${file.path}"`);
+      }
+      return;
+    }
 
     const { uuid, entry } = result;
 
@@ -299,6 +319,7 @@ export class IndexManager {
       this.ngramIndexer.removeDocument(this.ngramIndex, uuid);
       this.graphBuilder.removeNode(this.relationGraph, uuid);
       delete this.documentStats[uuid];
+      this.documentTermSets.delete(uuid);
     }
 
     // Update UUID index and reverse path map
@@ -316,6 +337,9 @@ export class IndexManager {
       // After the above guard, we know the array exists
       this.termIndex[term]!.push(posting);
     }
+
+    // Update cached document term sets
+    this.documentTermSets.set(uuid, new Set(postings.keys()));
 
     // Re-index n-grams
     const ngramText = `${entry.title} ${entry.path}`;
@@ -368,8 +392,9 @@ export class IndexManager {
         this.documentStats = docStats ?? {};
         this.corpusStats = corpus ?? { totalDocuments: 0, avgDocumentLength: 0, totalTerms: 0 };
         this.rebuildPathMap();
+        this.rebuildDocumentTermSets();
         this.indexLoaded = true;
-        this.lastIndexTime = Date.now();
+        this.lastIndexTime = this.corpusStats.lastIndexedAt ?? null;
         console.log(`Smart Relations: Loaded indexes from disk (${Object.keys(this.uuidIndex).length} notes)`);
         return true;
       }
@@ -402,6 +427,7 @@ export class IndexManager {
   getRelationGraph(): RelationGraph { return this.relationGraph; }
   getDocumentStats(): DocumentStats { return this.documentStats; }
   getCorpusStats(): CorpusStats { return this.corpusStats; }
+  getDocumentTermSets(): Map<string, Set<string>> { return this.documentTermSets; }
 
   getUuidForFile(file: TFile): string | null {
     return this.pathToUuid.get(file.path) ?? null;
@@ -420,6 +446,24 @@ export class IndexManager {
     this.pathToUuid.clear();
     for (const [uuid, entry] of Object.entries(this.uuidIndex)) {
       this.pathToUuid.set(entry.path, uuid);
+    }
+  }
+
+  /**
+   * Rebuild cached document term sets from the term index.
+   */
+  private rebuildDocumentTermSets(): void {
+    this.documentTermSets.clear();
+    for (const [term, postings] of Object.entries(this.termIndex)) {
+      if (!postings) continue;
+      for (const posting of postings) {
+        let termSet = this.documentTermSets.get(posting.uuid);
+        if (!termSet) {
+          termSet = new Set<string>();
+          this.documentTermSets.set(posting.uuid, termSet);
+        }
+        termSet.add(term);
+      }
     }
   }
 

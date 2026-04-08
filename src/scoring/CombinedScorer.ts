@@ -22,6 +22,7 @@ export interface IndexAccessor {
   getRelationGraph(): RelationGraph;
   getDocumentStats(): DocumentStats;
   getCorpusStats(): CorpusStats;
+  getDocumentTermSets(): Map<string, Set<string>>;
 }
 
 export class CombinedScorer {
@@ -79,9 +80,9 @@ export class CombinedScorer {
     const jaccardScorer = new JaccardScorer(uuidIndex);
     const jaccardScores = sourceTags.length > 0 ? jaccardScorer.scoreByTags(sourceTags) : new Map<string, number>();
 
-    // 3. Term overlap (Jaccard on term sets)
+    // 3. Term overlap (Jaccard on term sets — uses cached sets from IndexManager)
     const sourceTermSet = new Set(queryTerms);
-    const documentTermSets = this.buildDocumentTermSets(termIndex);
+    const documentTermSets = this.indexes.getDocumentTermSets();
     const termOverlapScores = sourceTermSet.size > 0
       ? jaccardScorer.scoreByTermOverlap(sourceTermSet, documentTermSets)
       : new Map<string, number>();
@@ -197,25 +198,4 @@ export class CombinedScorer {
     return normalized;
   }
 
-  /**
-   * Build per-document term sets from the term index.
-   * Used for term overlap (Jaccard on vocabulary).
-   */
-  private buildDocumentTermSets(termIndex: TermIndex): Map<string, Set<string>> {
-    const docTerms = new Map<string, Set<string>>();
-
-    for (const [term, postings] of Object.entries(termIndex)) {
-      if (!postings) continue;
-      for (const posting of postings) {
-        let termSet = docTerms.get(posting.uuid);
-        if (!termSet) {
-          termSet = new Set<string>();
-          docTerms.set(posting.uuid, termSet);
-        }
-        termSet.add(term);
-      }
-    }
-
-    return docTerms;
-  }
 }

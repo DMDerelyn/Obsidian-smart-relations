@@ -3,53 +3,69 @@
  *
  * Based on the algorithm described by Martin Porter (1980).
  * Reference: https://tartarus.org/martin/PorterStemmer/def.txt
+ *
+ * The algorithm works by applying a series of suffix-stripping rules
+ * organized in five steps. It uses the concept of "measure" (m),
+ * which counts the number of vowel-consonant (VC) sequences in the stem.
  */
 
-// A consonant is a letter other than A, E, I, O, U, and other than Y preceded by a consonant.
+// A consonant is any letter other than A, E, I, O, U, and Y when preceded by a consonant.
 function isConsonant(word: string, i: number): boolean {
-  const c = word[i];
-  if (c === "a" || c === "e" || c === "i" || c === "o" || c === "u") return false;
-  if (c === "y") {
-    if (i === 0) return true;
+  const ch = word[i];
+  if (ch === "a" || ch === "e" || ch === "i" || ch === "o" || ch === "u") {
+    return false;
+  }
+  if (ch === "y") {
+    if (i === 0) {
+      return true;
+    }
     return !isConsonant(word, i - 1);
   }
   return true;
 }
 
 /**
- * Measure m: the number of VC (vowel-consonant) sequences in the stem.
+ * Calculates the "measure" of a word — the number of VC sequences.
  * [C](VC)^m[V]
  */
 function measure(word: string): number {
-  let n = 0;
+  let m = 0;
   let i = 0;
   const len = word.length;
   if (len === 0) return 0;
 
   // Skip leading consonants
-  while (i < len && isConsonant(word, i)) i++;
+  while (i < len && isConsonant(word, i)) {
+    i++;
+  }
 
   while (i < len) {
     // Skip vowels
-    while (i < len && !isConsonant(word, i)) i++;
+    while (i < len && !isConsonant(word, i)) {
+      i++;
+    }
     if (i >= len) break;
-    n++;
     // Skip consonants
-    while (i < len && isConsonant(word, i)) i++;
+    while (i < len && isConsonant(word, i)) {
+      i++;
+    }
+    m++;
   }
 
-  return n;
+  return m;
 }
 
 /** Returns true if the stem contains a vowel */
 function hasVowel(word: string): boolean {
   for (let i = 0; i < word.length; i++) {
-    if (!isConsonant(word, i)) return true;
+    if (!isConsonant(word, i)) {
+      return true;
+    }
   }
   return false;
 }
 
-/** Returns true if the word ends with a double consonant (same letter repeated) */
+/** Returns true if the word ends with a double consonant */
 function endsWithDoubleConsonant(word: string): boolean {
   const len = word.length;
   if (len < 2) return false;
@@ -58,99 +74,94 @@ function endsWithDoubleConsonant(word: string): boolean {
 }
 
 /**
- * Returns true if the stem ends with CVC, where the second C is not W, X, or Y.
- * This is the *o condition in the Porter algorithm.
+ * Returns true if the word ends with consonant-vowel-consonant
+ * and the last consonant is not W, X, or Y.
+ * This is the *o condition from the Porter Stemmer spec.
  */
-function endsWithCVC(word: string): boolean {
+function endsCVC(word: string): boolean {
   const len = word.length;
   if (len < 3) return false;
   if (
     !isConsonant(word, len - 1) ||
     isConsonant(word, len - 2) ||
     !isConsonant(word, len - 3)
-  )
+  ) {
     return false;
-  const c = word[len - 1];
-  if (c === "w" || c === "x" || c === "y") return false;
+  }
+  const ch = word[len - 1];
+  if (ch === "w" || ch === "x" || ch === "y") {
+    return false;
+  }
   return true;
 }
 
-function endsWith(word: string, suffix: string): boolean {
-  return word.length >= suffix.length && word.endsWith(suffix);
-}
-
-/**
- * If the word ends with the given suffix, replace it with the replacement
- * and return the new word; otherwise return null.
- */
-function replaceSuffix(
-  word: string,
-  suffix: string,
-  replacement: string
-): string | null {
-  if (!endsWith(word, suffix)) return null;
-  const stem = word.slice(0, word.length - suffix.length);
-  return stem + replacement;
-}
-
-/** Step 1a: Plurals */
+/** Step 1a: Deals with plurals */
 function step1a(word: string): string {
-  if (endsWith(word, "sses")) return word.slice(0, -2); // SSES -> SS
-  if (endsWith(word, "ies")) return word.slice(0, -2);  // IES -> I
-  if (endsWith(word, "ss")) return word;                 // SS -> SS
-  if (endsWith(word, "s")) return word.slice(0, -1);     // S ->
+  if (word.endsWith("sses")) {
+    return word.slice(0, -2);
+  }
+  if (word.endsWith("ies")) {
+    return word.slice(0, -2);
+  }
+  if (word.endsWith("ss")) {
+    return word;
+  }
+  if (word.endsWith("s")) {
+    return word.slice(0, -1);
+  }
   return word;
 }
 
-/** Step 1b: -ED and -ING */
+/** Step 1b: Deals with -ED and -ING */
 function step1b(word: string): string {
-  if (endsWith(word, "eed")) {
+  if (word.endsWith("eed")) {
     const stem = word.slice(0, -3);
-    if (measure(stem) > 0) return stem + "ee";
+    if (measure(stem) > 0) {
+      return word.slice(0, -1); // eed -> ee
+    }
     return word;
   }
 
-  let stemFound = "";
-  let didRemove = false;
+  let modified = false;
+  let result = word;
 
-  if (endsWith(word, "ed")) {
+  if (word.endsWith("ed")) {
     const stem = word.slice(0, -2);
     if (hasVowel(stem)) {
-      stemFound = stem;
-      didRemove = true;
+      result = stem;
+      modified = true;
     }
-  } else if (endsWith(word, "ing")) {
+  } else if (word.endsWith("ing")) {
     const stem = word.slice(0, -3);
     if (hasVowel(stem)) {
-      stemFound = stem;
-      didRemove = true;
+      result = stem;
+      modified = true;
     }
   }
 
-  if (didRemove) {
-    word = stemFound;
-    if (endsWith(word, "at") || endsWith(word, "bl") || endsWith(word, "iz")) {
-      return word + "e";
-    }
+  if (modified) {
     if (
-      endsWithDoubleConsonant(word) &&
-      !endsWith(word, "l") &&
-      !endsWith(word, "s") &&
-      !endsWith(word, "z")
+      result.endsWith("at") ||
+      result.endsWith("bl") ||
+      result.endsWith("iz")
     ) {
-      return word.slice(0, -1);
-    }
-    if (measure(word) === 1 && endsWithCVC(word)) {
-      return word + "e";
+      result = result + "e";
+    } else if (endsWithDoubleConsonant(result)) {
+      const last = result[result.length - 1];
+      if (last !== "l" && last !== "s" && last !== "z") {
+        result = result.slice(0, -1);
+      }
+    } else if (measure(result) === 1 && endsCVC(result)) {
+      result = result + "e";
     }
   }
 
-  return word;
+  return result;
 }
 
-/** Step 1c: Turn terminal Y to I when there is another vowel in the stem */
+/** Step 1c: Turns terminal Y to I when there is another vowel in the stem */
 function step1c(word: string): string {
-  if (endsWith(word, "y")) {
+  if (word.endsWith("y")) {
     const stem = word.slice(0, -1);
     if (hasVowel(stem)) {
       return stem + "i";
@@ -159,12 +170,9 @@ function step1c(word: string): string {
   return word;
 }
 
-/** Step 2: Map double suffixes to single ones */
+/** Step 2: Maps double suffixes to single ones */
 function step2(word: string): string {
-  const len = word.length;
-  if (len < 2) return word;
-
-  const mappings: Array<[string, string]> = [
+  const suffixes: [string, string][] = [
     ["ational", "ate"],
     ["tional", "tion"],
     ["enci", "ence"],
@@ -185,24 +193,24 @@ function step2(word: string): string {
     ["aliti", "al"],
     ["iviti", "ive"],
     ["biliti", "ble"],
+    ["logi", "log"],
   ];
 
-  for (const [suffix, replacement] of mappings) {
-    if (endsWith(word, suffix)) {
-      const stem = word.slice(0, len - suffix.length);
+  for (const [suffix, replacement] of suffixes) {
+    if (word.endsWith(suffix)) {
+      const stem = word.slice(0, -suffix.length);
       if (measure(stem) > 0) {
         return stem + replacement;
       }
       return word;
     }
   }
-
   return word;
 }
 
-/** Step 3: Deal with -IC-, -FULL, -NESS, etc. */
+/** Step 3: Deals with -IC-, -FULL, -NESS, etc. */
 function step3(word: string): string {
-  const mappings: Array<[string, string]> = [
+  const suffixes: [string, string][] = [
     ["icate", "ic"],
     ["ative", ""],
     ["alize", "al"],
@@ -212,20 +220,19 @@ function step3(word: string): string {
     ["ness", ""],
   ];
 
-  for (const [suffix, replacement] of mappings) {
-    if (endsWith(word, suffix)) {
-      const stem = word.slice(0, word.length - suffix.length);
+  for (const [suffix, replacement] of suffixes) {
+    if (word.endsWith(suffix)) {
+      const stem = word.slice(0, -suffix.length);
       if (measure(stem) > 0) {
         return stem + replacement;
       }
       return word;
     }
   }
-
   return word;
 }
 
-/** Step 4: Remove -ANT, -ENCE, etc. */
+/** Step 4: Removes -ANT, -ENCE, -ER, etc. */
 function step4(word: string): string {
   const suffixes = [
     "al",
@@ -239,7 +246,6 @@ function step4(word: string): string {
     "ement",
     "ment",
     "ent",
-    "ion",
     "ou",
     "ism",
     "ate",
@@ -249,65 +255,63 @@ function step4(word: string): string {
     "ize",
   ];
 
+  // Special case for -ion: the stem must end in s or t
+  if (word.endsWith("ion")) {
+    const stem = word.slice(0, -3);
+    if (
+      measure(stem) > 1 &&
+      stem.length > 0 &&
+      (stem.endsWith("s") || stem.endsWith("t"))
+    ) {
+      return stem;
+    }
+  }
+
   for (const suffix of suffixes) {
-    if (endsWith(word, suffix)) {
-      const stem = word.slice(0, word.length - suffix.length);
-      if (suffix === "ion") {
-        // Special case: -ION requires the stem to end in S or T
-        if (
-          measure(stem) > 1 &&
-          stem.length > 0 &&
-          (stem[stem.length - 1] === "s" || stem[stem.length - 1] === "t")
-        ) {
-          return stem;
-        }
-      } else {
-        if (measure(stem) > 1) {
-          return stem;
-        }
+    if (word.endsWith(suffix)) {
+      const stem = word.slice(0, -suffix.length);
+      if (measure(stem) > 1) {
+        return stem;
       }
       return word;
     }
   }
-
   return word;
 }
 
-/** Step 5a: Remove a trailing -E if measure > 1, or measure == 1 and not *o */
+/** Step 5a: Removes a final -E */
 function step5a(word: string): string {
-  if (endsWith(word, "e")) {
+  if (word.endsWith("e")) {
     const stem = word.slice(0, -1);
-    const m = measure(stem);
-    if (m > 1) return stem;
-    if (m === 1 && !endsWithCVC(stem)) return stem;
+    if (measure(stem) > 1) {
+      return stem;
+    }
+    if (measure(stem) === 1 && !endsCVC(stem)) {
+      return stem;
+    }
   }
   return word;
 }
 
-/** Step 5b: Remove double consonant LL when measure > 1 */
+/** Step 5b: Removes double consonant with -LL */
 function step5b(word: string): string {
-  if (
-    endsWithDoubleConsonant(word) &&
-    endsWith(word, "ll") &&
-    measure(word.slice(0, -1)) > 1
-  ) {
+  if (word.endsWith("ll") && measure(word.slice(0, -1)) > 1) {
     return word.slice(0, -1);
   }
   return word;
 }
 
 /**
- * Stems a word using the Porter Stemming algorithm.
- * Returns the stemmed form of the word.
+ * Stems a word using the Porter Stemmer algorithm.
+ * Words shorter than 3 characters are returned unchanged.
  */
 export function stem(word: string): string {
-  // Convert to lowercase for processing
   word = word.toLowerCase();
 
-  // Words shorter than 3 characters pass through unchanged
-  if (word.length < 3) return word;
+  if (word.length < 3) {
+    return word;
+  }
 
-  // Apply steps in order
   word = step1a(word);
   word = step1b(word);
   word = step1c(word);

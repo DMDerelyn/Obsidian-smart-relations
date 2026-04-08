@@ -90,7 +90,7 @@ export class UuidIndexer {
   private isExcluded(file: TFile, excludedFolders: string[]): boolean {
     return excludedFolders.some(folder => {
       const normalized = folder.endsWith('/') ? folder : folder + '/';
-      return file.path.startsWith(normalized) || file.path.startsWith(folder);
+      return file.path.startsWith(normalized);
     });
   }
 }

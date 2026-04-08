@@ -46,4 +46,5 @@ export interface CorpusStats {
   totalDocuments: number;
   avgDocumentLength: number;  // average word count (avgdl for BM25)
   totalTerms: number;
+  lastIndexedAt?: number;     // epoch ms of last index build
 }

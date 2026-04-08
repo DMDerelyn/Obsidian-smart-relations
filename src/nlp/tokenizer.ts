@@ -123,10 +123,12 @@ export function tokenizeWithPositions(
   text: string
 ): Array<{ term: string; position: number }> {
   const results: Array<{ term: string; position: number }> = [];
+  // Strip markdown to avoid indexing terms from code blocks, URLs, HTML tags
+  const stripped = stripMarkdown(text);
   const wordRegex = /[a-zA-Z0-9]+/g;
   let match: RegExpExecArray | null;
 
-  while ((match = wordRegex.exec(text)) !== null) {
+  while ((match = wordRegex.exec(stripped)) !== null) {
     const raw = match[0].toLowerCase();
 
     // Skip short tokens

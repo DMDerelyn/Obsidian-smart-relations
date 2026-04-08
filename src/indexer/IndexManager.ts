@@ -44,6 +44,12 @@ export class IndexManager {
   private graphBuilder: RelationGraphBuilder;
   private statsBuilder: DocumentStatsBuilder;
 
+  // Reverse map for O(1) path -> uuid lookups
+  private pathToUuid: Map<string, string> = new Map();
+
+  // Cached document term sets for scoring (avoids per-query rebuild)
+  private documentTermSets: Map<string, Set<string>> = new Map();
+
   // Debounce
   private pendingChanges: Map<string, { file: TFile; type: 'create' | 'modify' | 'delete' }> = new Map();
   private debounceTimer: number | null = null;
@@ -127,10 +133,15 @@ export class IndexManager {
         (uuid) => uuidIndex[uuid]?.lastModified ?? Date.now()
       );
 
-      // Save all indexes
+      // Build reverse path map and document term sets cache
+      this.rebuildPathMap();
+      this.rebuildDocumentTermSets();
+
+      // Persist timestamp in corpus stats and save all indexes
+      this.corpusStats.lastIndexedAt = Date.now();
       await this.saveAllIndexes();
 
-      this.lastIndexTime = Date.now();
+      this.lastIndexTime = this.corpusStats.lastIndexedAt;
       this.indexLoaded = true;
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -154,8 +165,11 @@ export class IndexManager {
     if (!this.indexLoaded) return;
     if (file.extension !== 'md') return;
 
-    // Skip excluded folders
-    if (this.settings.excludedFolders.some(f => file.path.startsWith(f))) return;
+    // Skip excluded folders (append / to prevent prefix false positives like "arc" matching "archive/")
+    if (this.settings.excludedFolders.some(f => {
+      const normalized = f.endsWith('/') ? f : f + '/';
+      return file.path.startsWith(normalized);
+    })) return;
 
     this.pendingChanges.set(file.path, { file, type: changeType });
     this.scheduleFlush();
@@ -221,15 +235,10 @@ export class IndexManager {
         }
       }
 
-      // Rebuild tag co-occurrence and doc stats (they depend on full index state)
+      // Rebuild tag co-occurrence
       this.tagCooccurrence = this.tagIndexer.buildIndex(this.uuidIndex);
-      this.documentStats = this.statsBuilder.buildAllStats(
-        this.termIndex,
-        this.corpusStats,
-        (uuid) => this.uuidIndex[uuid]?.lastModified ?? Date.now()
-      );
 
-      // Recalculate corpus stats
+      // Recalculate corpus stats FIRST (document stats depend on IDF which needs totalDocuments)
       let totalWords = 0;
       const allTerms = new Set<string>();
       for (const [term, postings] of Object.entries(this.termIndex)) {
@@ -247,8 +256,16 @@ export class IndexManager {
         totalTerms: allTerms.size,
       };
 
+      // Now rebuild document stats with fresh corpus stats
+      this.documentStats = this.statsBuilder.buildAllStats(
+        this.termIndex,
+        this.corpusStats,
+        (uuid) => this.uuidIndex[uuid]?.lastModified ?? Date.now()
+      );
+
+      this.corpusStats.lastIndexedAt = Date.now();
       await this.saveAllIndexes();
-      this.lastIndexTime = Date.now();
+      this.lastIndexTime = this.corpusStats.lastIndexedAt;
     } catch (e) {
       console.error('Smart Relations: Incremental update failed:', e);
     } finally {
@@ -257,18 +274,13 @@ export class IndexManager {
   }
 
   private handleDelete(path: string): void {
-    // Find UUID by path
-    let deletedUuid: string | null = null;
-    for (const [uuid, entry] of Object.entries(this.uuidIndex)) {
-      if (entry.path === path) {
-        deletedUuid = uuid;
-        break;
-      }
-    }
+    // Use reverse map for O(1) lookup
+    const deletedUuid = this.pathToUuid.get(path) ?? null;
 
     if (!deletedUuid) return;
 
-    // Remove from all indexes
+    // Remove from all indexes and reverse map
+    this.pathToUuid.delete(path);
     this.uuidIndexer.removeFile(this.uuidIndex, deletedUuid);
     this.termIndexer.removeDocument(this.termIndex, deletedUuid);
     this.ngramIndexer.removeDocument(this.ngramIndex, deletedUuid);
@@ -283,7 +295,21 @@ export class IndexManager {
     if (!cache) return;
 
     const result = this.uuidIndexer.indexSingleFile(file, cache);
-    if (!result) return; // No valid UUID
+    if (!result) {
+      // Note has no valid UUID — clean up old entries if it was previously indexed
+      const oldUuid = this.pathToUuid.get(file.path);
+      if (oldUuid) {
+        this.uuidIndexer.removeFile(this.uuidIndex, oldUuid);
+        this.termIndexer.removeDocument(this.termIndex, oldUuid);
+        this.ngramIndexer.removeDocument(this.ngramIndex, oldUuid);
+        this.graphBuilder.removeNode(this.relationGraph, oldUuid);
+        delete this.documentStats[oldUuid];
+        this.documentTermSets.delete(oldUuid);
+        this.pathToUuid.delete(file.path);
+        console.warn(`Smart Relations: Note lost its UUID, removed from index: "${file.path}"`);
+      }
+      return;
+    }
 
     const { uuid, entry } = result;
 
@@ -293,10 +319,12 @@ export class IndexManager {
       this.ngramIndexer.removeDocument(this.ngramIndex, uuid);
       this.graphBuilder.removeNode(this.relationGraph, uuid);
       delete this.documentStats[uuid];
+      this.documentTermSets.delete(uuid);
     }
 
-    // Update UUID index
+    // Update UUID index and reverse path map
     this.uuidIndexer.updateFile(this.uuidIndex, uuid, entry);
+    this.pathToUuid.set(entry.path, uuid);
 
     // Re-index term postings
     const content = await this.app.vault.cachedRead(file);
@@ -309,6 +337,9 @@ export class IndexManager {
       // After the above guard, we know the array exists
       this.termIndex[term]!.push(posting);
     }
+
+    // Update cached document term sets
+    this.documentTermSets.set(uuid, new Set(postings.keys()));
 
     // Re-index n-grams
     const ngramText = `${entry.title} ${entry.path}`;
@@ -360,8 +391,10 @@ export class IndexManager {
         this.relationGraph = graph ?? {};
         this.documentStats = docStats ?? {};
         this.corpusStats = corpus ?? { totalDocuments: 0, avgDocumentLength: 0, totalTerms: 0 };
+        this.rebuildPathMap();
+        this.rebuildDocumentTermSets();
         this.indexLoaded = true;
-        this.lastIndexTime = Date.now();
+        this.lastIndexTime = this.corpusStats.lastIndexedAt ?? null;
         console.log(`Smart Relations: Loaded indexes from disk (${Object.keys(this.uuidIndex).length} notes)`);
         return true;
       }
@@ -394,12 +427,10 @@ export class IndexManager {
   getRelationGraph(): RelationGraph { return this.relationGraph; }
   getDocumentStats(): DocumentStats { return this.documentStats; }
   getCorpusStats(): CorpusStats { return this.corpusStats; }
+  getDocumentTermSets(): Map<string, Set<string>> { return this.documentTermSets; }
 
   getUuidForFile(file: TFile): string | null {
-    for (const [uuid, entry] of Object.entries(this.uuidIndex)) {
-      if (entry.path === file.path) return uuid;
-    }
-    return null;
+    return this.pathToUuid.get(file.path) ?? null;
   }
 
   isLoaded(): boolean { return this.indexLoaded; }
@@ -407,6 +438,45 @@ export class IndexManager {
 
   getLastIndexTime(): number | null { return this.lastIndexTime; }
   getNoteCount(): number { return Object.keys(this.uuidIndex).length; }
+
+  /**
+   * Rebuild the reverse path -> uuid map from the UUID index.
+   */
+  private rebuildPathMap(): void {
+    this.pathToUuid.clear();
+    for (const [uuid, entry] of Object.entries(this.uuidIndex)) {
+      this.pathToUuid.set(entry.path, uuid);
+    }
+  }
+
+  /**
+   * Rebuild cached document term sets from the term index.
+   */
+  private rebuildDocumentTermSets(): void {
+    this.documentTermSets.clear();
+    for (const [term, postings] of Object.entries(this.termIndex)) {
+      if (!postings) continue;
+      for (const posting of postings) {
+        let termSet = this.documentTermSets.get(posting.uuid);
+        if (!termSet) {
+          termSet = new Set<string>();
+          this.documentTermSets.set(posting.uuid, termSet);
+        }
+        termSet.add(term);
+      }
+    }
+  }
+
+  /**
+   * Clean up timers. Call from plugin onunload().
+   */
+  destroy(): void {
+    if (this.debounceTimer !== null) {
+      window.clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    this.pendingChanges.clear();
+  }
 
   /**
    * Get dirty files (modified since last index).

@@ -36,7 +36,7 @@ export class NgramIndexer {
    */
   extractNgrams(text: string, n: number): string[] {
     const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
-    if (normalized.length < n) return [normalized];
+    if (normalized.length < n) return [];
 
     const ngrams: string[] = [];
     for (let i = 0; i <= normalized.length - n; i++) {

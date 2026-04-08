@@ -205,6 +205,7 @@ export class CombinedScorer {
     const docTerms = new Map<string, Set<string>>();
 
     for (const [term, postings] of Object.entries(termIndex)) {
+      if (!postings) continue;
       for (const posting of postings) {
         let termSet = docTerms.get(posting.uuid);
         if (!termSet) {

@@ -168,17 +168,22 @@ export class IndexManager {
     if (!this.indexLoaded) return;
     if (file.extension !== 'md') return;
 
-    // Find UUID by old path
-    for (const [, entry] of Object.entries(this.uuidIndex)) {
-      if (entry.path === oldPath) {
-        entry.path = file.path;
-        entry.title = file.basename;
-        entry.lastModified = file.stat.mtime;
-        // Save just the UUID index
-        void this.cache.saveIndex(INDEX_FILES.uuid, this.uuidIndex);
-        break;
+    // Queue as a modify to avoid race conditions with concurrent flushes
+    this.pendingChanges.set(file.path, { file, type: 'modify' });
+
+    // Also update the path in UUID index immediately for consistency
+    // (safe since we only mutate a string property, not structural changes)
+    if (!this.isIndexing) {
+      for (const [, entry] of Object.entries(this.uuidIndex)) {
+        if (entry.path === oldPath) {
+          entry.path = file.path;
+          entry.title = file.basename;
+          break;
+        }
       }
     }
+
+    this.scheduleFlush();
   }
 
   private scheduleFlush(): void {

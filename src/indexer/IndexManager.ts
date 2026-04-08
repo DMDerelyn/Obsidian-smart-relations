@@ -44,6 +44,9 @@ export class IndexManager {
   private graphBuilder: RelationGraphBuilder;
   private statsBuilder: DocumentStatsBuilder;
 
+  // Reverse map for O(1) path -> uuid lookups
+  private pathToUuid: Map<string, string> = new Map();
+
   // Debounce
   private pendingChanges: Map<string, { file: TFile; type: 'create' | 'modify' | 'delete' }> = new Map();
   private debounceTimer: number | null = null;
@@ -127,6 +130,9 @@ export class IndexManager {
         (uuid) => uuidIndex[uuid]?.lastModified ?? Date.now()
       );
 
+      // Build reverse path map
+      this.rebuildPathMap();
+
       // Save all indexes
       await this.saveAllIndexes();
 
@@ -154,8 +160,11 @@ export class IndexManager {
     if (!this.indexLoaded) return;
     if (file.extension !== 'md') return;
 
-    // Skip excluded folders
-    if (this.settings.excludedFolders.some(f => file.path.startsWith(f))) return;
+    // Skip excluded folders (append / to prevent prefix false positives like "arc" matching "archive/")
+    if (this.settings.excludedFolders.some(f => {
+      const normalized = f.endsWith('/') ? f : f + '/';
+      return file.path.startsWith(normalized);
+    })) return;
 
     this.pendingChanges.set(file.path, { file, type: changeType });
     this.scheduleFlush();
@@ -221,15 +230,10 @@ export class IndexManager {
         }
       }
 
-      // Rebuild tag co-occurrence and doc stats (they depend on full index state)
+      // Rebuild tag co-occurrence
       this.tagCooccurrence = this.tagIndexer.buildIndex(this.uuidIndex);
-      this.documentStats = this.statsBuilder.buildAllStats(
-        this.termIndex,
-        this.corpusStats,
-        (uuid) => this.uuidIndex[uuid]?.lastModified ?? Date.now()
-      );
 
-      // Recalculate corpus stats
+      // Recalculate corpus stats FIRST (document stats depend on IDF which needs totalDocuments)
       let totalWords = 0;
       const allTerms = new Set<string>();
       for (const [term, postings] of Object.entries(this.termIndex)) {
@@ -247,6 +251,13 @@ export class IndexManager {
         totalTerms: allTerms.size,
       };
 
+      // Now rebuild document stats with fresh corpus stats
+      this.documentStats = this.statsBuilder.buildAllStats(
+        this.termIndex,
+        this.corpusStats,
+        (uuid) => this.uuidIndex[uuid]?.lastModified ?? Date.now()
+      );
+
       await this.saveAllIndexes();
       this.lastIndexTime = Date.now();
     } catch (e) {
@@ -257,18 +268,13 @@ export class IndexManager {
   }
 
   private handleDelete(path: string): void {
-    // Find UUID by path
-    let deletedUuid: string | null = null;
-    for (const [uuid, entry] of Object.entries(this.uuidIndex)) {
-      if (entry.path === path) {
-        deletedUuid = uuid;
-        break;
-      }
-    }
+    // Use reverse map for O(1) lookup
+    const deletedUuid = this.pathToUuid.get(path) ?? null;
 
     if (!deletedUuid) return;
 
-    // Remove from all indexes
+    // Remove from all indexes and reverse map
+    this.pathToUuid.delete(path);
     this.uuidIndexer.removeFile(this.uuidIndex, deletedUuid);
     this.termIndexer.removeDocument(this.termIndex, deletedUuid);
     this.ngramIndexer.removeDocument(this.ngramIndex, deletedUuid);
@@ -295,8 +301,9 @@ export class IndexManager {
       delete this.documentStats[uuid];
     }
 
-    // Update UUID index
+    // Update UUID index and reverse path map
     this.uuidIndexer.updateFile(this.uuidIndex, uuid, entry);
+    this.pathToUuid.set(entry.path, uuid);
 
     // Re-index term postings
     const content = await this.app.vault.cachedRead(file);
@@ -360,6 +367,7 @@ export class IndexManager {
         this.relationGraph = graph ?? {};
         this.documentStats = docStats ?? {};
         this.corpusStats = corpus ?? { totalDocuments: 0, avgDocumentLength: 0, totalTerms: 0 };
+        this.rebuildPathMap();
         this.indexLoaded = true;
         this.lastIndexTime = Date.now();
         console.log(`Smart Relations: Loaded indexes from disk (${Object.keys(this.uuidIndex).length} notes)`);
@@ -396,10 +404,7 @@ export class IndexManager {
   getCorpusStats(): CorpusStats { return this.corpusStats; }
 
   getUuidForFile(file: TFile): string | null {
-    for (const [uuid, entry] of Object.entries(this.uuidIndex)) {
-      if (entry.path === file.path) return uuid;
-    }
-    return null;
+    return this.pathToUuid.get(file.path) ?? null;
   }
 
   isLoaded(): boolean { return this.indexLoaded; }
@@ -407,6 +412,27 @@ export class IndexManager {
 
   getLastIndexTime(): number | null { return this.lastIndexTime; }
   getNoteCount(): number { return Object.keys(this.uuidIndex).length; }
+
+  /**
+   * Rebuild the reverse path -> uuid map from the UUID index.
+   */
+  private rebuildPathMap(): void {
+    this.pathToUuid.clear();
+    for (const [uuid, entry] of Object.entries(this.uuidIndex)) {
+      this.pathToUuid.set(entry.path, uuid);
+    }
+  }
+
+  /**
+   * Clean up timers. Call from plugin onunload().
+   */
+  destroy(): void {
+    if (this.debounceTimer !== null) {
+      window.clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    this.pendingChanges.clear();
+  }
 
   /**
    * Get dirty files (modified since last index).

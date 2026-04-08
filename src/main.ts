@@ -126,6 +126,7 @@ export default class SmartRelationsPlugin extends Plugin {
   }
 
   onunload(): void {
+    this.indexManager.destroy();
     console.log('Smart Relations: unloading plugin');
   }
 

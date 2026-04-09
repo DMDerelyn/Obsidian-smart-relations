@@ -146,3 +146,54 @@
   font-family: var(--font-monospace);
   font-size: 11px;
 }
+
+/* Mobile overrides — Obsidian adds .is-mobile to body on mobile devices */
+.is-mobile .smart-relations-container {
+  padding: 10px;
+}
+
+.is-mobile .sr-result-item {
+  padding: 12px;
+}
+
+.is-mobile .sr-result-title {
+  font-size: 15px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+
+.is-mobile .sr-refresh-btn {
+  padding: 8px 12px;
+  min-width: 44px;
+  min-height: 44px;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.is-mobile .sr-result-score {
+  font-size: 12px;
+  padding: 2px 8px;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+}
+
+.is-mobile .sr-result-breakdown summary {
+  font-size: 13px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+
+.is-mobile .sr-score-row {
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.is-mobile .sr-score-label,
+.is-mobile .sr-score-value {
+  font-size: 13px;
+}

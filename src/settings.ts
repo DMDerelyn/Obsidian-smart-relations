@@ -15,6 +15,9 @@ export interface SmartRelationsSettings {
   ngramSize: number;
   useRichRelatedFormat: boolean;  // true = object format {uuid, rel, auto}, false = simple UUID strings
   maxTokenizationLength: number;  // cap for very long notes
+  enableNgramIndex: boolean;      // n-gram index for fuzzy matching (memory-heavy, not used in scoring)
+  storePositions: boolean;        // store term positions in index (memory-heavy, for external tools)
+  indexBatchSize: number;         // files per batch during full reindex (yield between batches)
 }
 
 export const DEFAULT_SETTINGS: SmartRelationsSettings = {
@@ -30,6 +33,9 @@ export const DEFAULT_SETTINGS: SmartRelationsSettings = {
   ngramSize: 3,
   useRichRelatedFormat: true,
   maxTokenizationLength: 50000,
+  enableNgramIndex: true,
+  storePositions: true,
+  indexBatchSize: 50,
 };
 
 export class SmartRelationsSettingTab extends PluginSettingTab {
@@ -132,6 +138,41 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
         .setDynamicTooltip()
         .onChange(async (value) => {
           this.plugin.settings.ngramSize = value;
+          await this.plugin.saveSettings();
+        }));
+
+    // Performance / Mobile
+    containerEl.createEl('h3', { text: 'Performance' });
+
+    new Setting(containerEl)
+      .setName('Enable n-gram index')
+      .setDesc('Builds a character n-gram index for fuzzy matching. Disable to save memory on mobile.')
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.enableNgramIndex)
+        .onChange(async (value) => {
+          this.plugin.settings.enableNgramIndex = value;
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName('Store term positions')
+      .setDesc('Store character positions for each term occurrence. Disable to save memory on mobile. Not needed for scoring.')
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.storePositions)
+        .onChange(async (value) => {
+          this.plugin.settings.storePositions = value;
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName('Index batch size')
+      .setDesc('Files processed per batch during reindex. Lower values reduce UI freezing on mobile (10-100).')
+      .addSlider(slider => slider
+        .setLimits(10, 100, 10)
+        .setValue(this.plugin.settings.indexBatchSize)
+        .setDynamicTooltip()
+        .onChange(async (value) => {
+          this.plugin.settings.indexBatchSize = value;
           await this.plugin.saveSettings();
         }));
   }

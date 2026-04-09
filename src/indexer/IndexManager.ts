@@ -60,13 +60,19 @@ export class IndexManager {
   private lastIndexTime: number | null = null;
   private indexLoaded = false;
 
+  // Dirty tracking for selective persistence
+  private dirtyIndexes: Set<string> = new Set();
+
+  // Track whether documentTermSets needs rebuilding (lazy computation)
+  private documentTermSetsDirty = true;
+
   constructor(
     private app: App,
     private settings: SmartRelationsSettings,
     private cache: IndexCache
   ) {
     this.uuidIndexer = new UuidIndexer(app);
-    this.termIndexer = new TermIndexer(app, settings.maxTokenizationLength);
+    this.termIndexer = new TermIndexer(app, settings.maxTokenizationLength, settings.storePositions, settings.indexBatchSize);
     this.tagIndexer = new TagIndexer();
     this.ngramIndexer = new NgramIndexer(settings.ngramSize);
     this.graphBuilder = new RelationGraphBuilder(app);
@@ -111,13 +117,17 @@ export class IndexManager {
       onProgress?.('Building tag co-occurrence...', 0.6);
       this.tagCooccurrence = this.tagIndexer.buildIndex(uuidIndex);
 
-      // Step 4: Build n-gram index (uses title + path)
-      onProgress?.('Building n-gram index...', 0.7);
-      const ngramDocuments = new Map<string, string>();
-      for (const [uuid, entry] of Object.entries(uuidIndex)) {
-        ngramDocuments.set(uuid, `${entry.title} ${entry.path}`);
+      // Step 4: Build n-gram index (optional — can be disabled for memory savings)
+      if (this.settings.enableNgramIndex) {
+        onProgress?.('Building n-gram index...', 0.7);
+        const ngramDocuments = new Map<string, string>();
+        for (const [uuid, entry] of Object.entries(uuidIndex)) {
+          ngramDocuments.set(uuid, `${entry.title} ${entry.path}`);
+        }
+        this.ngramIndex = this.ngramIndexer.buildIndex(ngramDocuments);
+      } else {
+        this.ngramIndex = {};
       }
-      this.ngramIndex = this.ngramIndexer.buildIndex(ngramDocuments);
 
       // Step 5: Build relation graph
       onProgress?.('Building relation graph...', 0.8);
@@ -133,11 +143,12 @@ export class IndexManager {
         (uuid) => uuidIndex[uuid]?.lastModified ?? Date.now()
       );
 
-      // Build reverse path map and document term sets cache
+      // Build reverse path map; mark term sets for lazy rebuild
       this.rebuildPathMap();
-      this.rebuildDocumentTermSets();
+      this.documentTermSetsDirty = true;
 
       // Persist timestamp in corpus stats and save all indexes
+      this.markAllDirty();
       this.corpusStats.lastIndexedAt = Date.now();
       await this.saveAllIndexes();
 
@@ -264,6 +275,9 @@ export class IndexManager {
       );
 
       this.corpusStats.lastIndexedAt = Date.now();
+      this.documentTermSetsDirty = true;
+      this.markDirty('uuid', 'term', 'tag', 'graph', 'docStats', 'corpusStats');
+      if (this.settings.enableNgramIndex) this.markDirty('ngram');
       await this.saveAllIndexes();
       this.lastIndexTime = this.corpusStats.lastIndexedAt;
     } catch (e) {
@@ -338,21 +352,23 @@ export class IndexManager {
       this.termIndex[term]!.push(posting);
     }
 
-    // Update cached document term sets
-    this.documentTermSets.set(uuid, new Set(postings.keys()));
+    // Mark document term sets for lazy rebuild
+    this.documentTermSetsDirty = true;
 
-    // Re-index n-grams
-    const ngramText = `${entry.title} ${entry.path}`;
-    const ngramDocs = new Map<string, string>();
-    ngramDocs.set(uuid, ngramText);
-    const newNgrams = this.ngramIndexer.buildIndex(ngramDocs);
-    for (const [ngram, uuids] of Object.entries(newNgrams)) {
-      if (!uuids) continue;
-      const existingNgram = this.ngramIndex[ngram];
-      if (!existingNgram) {
-        this.ngramIndex[ngram] = [];
+    // Re-index n-grams (if enabled)
+    if (this.settings.enableNgramIndex) {
+      const ngramText = `${entry.title} ${entry.path}`;
+      const ngramDocs = new Map<string, string>();
+      ngramDocs.set(uuid, ngramText);
+      const newNgrams = this.ngramIndexer.buildIndex(ngramDocs);
+      for (const [ngram, uuids] of Object.entries(newNgrams)) {
+        if (!uuids) continue;
+        const existingNgram = this.ngramIndex[ngram];
+        if (!existingNgram) {
+          this.ngramIndex[ngram] = [];
+        }
+        this.ngramIndex[ngram]!.push(...uuids);
       }
-      this.ngramIndex[ngram]!.push(...uuids);
     }
 
     // Re-index relation graph edges for this file
@@ -392,7 +408,7 @@ export class IndexManager {
         this.documentStats = docStats ?? {};
         this.corpusStats = corpus ?? { totalDocuments: 0, avgDocumentLength: 0, totalTerms: 0 };
         this.rebuildPathMap();
-        this.rebuildDocumentTermSets();
+        this.documentTermSetsDirty = true;
         this.indexLoaded = true;
         this.lastIndexTime = this.corpusStats.lastIndexedAt ?? null;
         console.log(`Smart Relations: Loaded indexes from disk (${Object.keys(this.uuidIndex).length} notes)`);
@@ -407,15 +423,40 @@ export class IndexManager {
   }
 
   async saveAllIndexes(): Promise<void> {
-    await Promise.all([
-      this.cache.saveIndex(INDEX_FILES.uuid, this.uuidIndex),
-      this.cache.saveIndex(INDEX_FILES.term, this.termIndex),
-      this.cache.saveIndex(INDEX_FILES.tag, this.tagCooccurrence),
-      this.cache.saveIndex(INDEX_FILES.ngram, this.ngramIndex),
-      this.cache.saveIndex(INDEX_FILES.graph, this.relationGraph),
-      this.cache.saveIndex(INDEX_FILES.docStats, this.documentStats),
-      this.cache.saveIndex(INDEX_FILES.corpusStats, this.corpusStats),
-    ]);
+    // Only write indexes that have been marked dirty
+    const writes: Promise<void>[] = [];
+    const indexMap: Record<string, unknown> = {
+      uuid: this.uuidIndex,
+      term: this.termIndex,
+      tag: this.tagCooccurrence,
+      ngram: this.ngramIndex,
+      graph: this.relationGraph,
+      docStats: this.documentStats,
+      corpusStats: this.corpusStats,
+    };
+
+    for (const key of this.dirtyIndexes) {
+      const filename = INDEX_FILES[key as keyof typeof INDEX_FILES];
+      const data = indexMap[key];
+      if (filename && data !== undefined) {
+        writes.push(this.cache.saveIndex(filename, data));
+      }
+    }
+
+    if (writes.length > 0) {
+      await Promise.all(writes);
+    }
+    this.dirtyIndexes.clear();
+  }
+
+  private markDirty(...keys: string[]): void {
+    for (const key of keys) {
+      this.dirtyIndexes.add(key);
+    }
+  }
+
+  private markAllDirty(): void {
+    this.markDirty('uuid', 'term', 'tag', 'ngram', 'graph', 'docStats', 'corpusStats');
   }
 
   // ==================== Accessors ====================
@@ -427,7 +468,13 @@ export class IndexManager {
   getRelationGraph(): RelationGraph { return this.relationGraph; }
   getDocumentStats(): DocumentStats { return this.documentStats; }
   getCorpusStats(): CorpusStats { return this.corpusStats; }
-  getDocumentTermSets(): Map<string, Set<string>> { return this.documentTermSets; }
+  getDocumentTermSets(): Map<string, Set<string>> {
+    if (this.documentTermSetsDirty) {
+      this.rebuildDocumentTermSets();
+      this.documentTermSetsDirty = false;
+    }
+    return this.documentTermSets;
+  }
 
   getUuidForFile(file: TFile): string | null {
     return this.pathToUuid.get(file.path) ?? null;

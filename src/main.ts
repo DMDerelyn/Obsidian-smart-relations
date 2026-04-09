@@ -11,6 +11,8 @@ export default class SmartRelationsPlugin extends Plugin {
   private indexManager!: IndexManager;
   private scorer!: CombinedScorer;
   private statusBarEl: HTMLElement | null = null;
+  private leafChangeTimer: number | null = null;
+  private leafChangeGeneration = 0;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -74,9 +76,9 @@ export default class SmartRelationsPlugin extends Plugin {
       }
     }));
 
-    // Auto-update related panel on active file change
+    // Auto-update related panel on active file change (debounced with cancellation)
     this.registerEvent(this.app.workspace.on('active-leaf-change', () => {
-      this.refreshRelatedPanel();
+      this.debouncedRefreshRelatedPanel();
     }));
 
     // Ribbon icon
@@ -126,6 +128,9 @@ export default class SmartRelationsPlugin extends Plugin {
   }
 
   onunload(): void {
+    if (this.leafChangeTimer !== null) {
+      window.clearTimeout(this.leafChangeTimer);
+    }
     this.indexManager.destroy();
     console.log('Smart Relations: unloading plugin');
   }
@@ -188,6 +193,21 @@ export default class SmartRelationsPlugin extends Plugin {
       }
     }
     this.refreshRelatedPanel();
+  }
+
+  private debouncedRefreshRelatedPanel(): void {
+    if (this.leafChangeTimer !== null) {
+      window.clearTimeout(this.leafChangeTimer);
+    }
+    this.leafChangeGeneration++;
+    const gen = this.leafChangeGeneration;
+    this.leafChangeTimer = window.setTimeout(() => {
+      this.leafChangeTimer = null;
+      // Only proceed if no newer generation has been triggered
+      if (gen === this.leafChangeGeneration) {
+        this.refreshRelatedPanel();
+      }
+    }, 300);
   }
 
   private refreshRelatedPanel(): void {

@@ -43,7 +43,10 @@ var DEFAULT_SETTINGS = {
   maxRelatedNotes: 20,
   ngramSize: 3,
   useRichRelatedFormat: true,
-  maxTokenizationLength: 5e4
+  maxTokenizationLength: 5e4,
+  enableNgramIndex: true,
+  storePositions: true,
+  indexBatchSize: 50
 };
 var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
   constructor(app, plugin) {
@@ -86,6 +89,19 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
     }));
     new import_obsidian.Setting(containerEl).setName("N-gram size").setDesc("Character n-gram size for fuzzy matching (2-5)").addSlider((slider) => slider.setLimits(2, 5, 1).setValue(this.plugin.settings.ngramSize).setDynamicTooltip().onChange(async (value) => {
       this.plugin.settings.ngramSize = value;
+      await this.plugin.saveSettings();
+    }));
+    containerEl.createEl("h3", { text: "Performance" });
+    new import_obsidian.Setting(containerEl).setName("Enable n-gram index").setDesc("Builds a character n-gram index for fuzzy matching. Disable to save memory on mobile.").addToggle((toggle) => toggle.setValue(this.plugin.settings.enableNgramIndex).onChange(async (value) => {
+      this.plugin.settings.enableNgramIndex = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("Store term positions").setDesc("Store character positions for each term occurrence. Disable to save memory on mobile. Not needed for scoring.").addToggle((toggle) => toggle.setValue(this.plugin.settings.storePositions).onChange(async (value) => {
+      this.plugin.settings.storePositions = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("Index batch size").setDesc("Files processed per batch during reindex. Lower values reduce UI freezing on mobile (10-100).").addSlider((slider) => slider.setLimits(10, 100, 10).setValue(this.plugin.settings.indexBatchSize).setDynamicTooltip().onChange(async (value) => {
+      this.plugin.settings.indexBatchSize = value;
       await this.plugin.saveSettings();
     }));
   }
@@ -771,51 +787,60 @@ function tokenizeWithPositions(text) {
 
 // src/indexer/TermIndexer.ts
 var TermIndexer = class {
-  constructor(app, maxTokenizationLength = 5e4) {
+  constructor(app, maxTokenizationLength = 5e4, storePositions = true, batchSize = 50) {
     this.app = app;
     this.maxTokenizationLength = maxTokenizationLength;
+    this.storePositions = storePositions;
+    this.batchSize = batchSize;
   }
   /**
    * Build the complete term index from all files.
-   * Only indexes files that have a UUID in the UuidIndex.
+   * Processes files in batches, yielding to the UI thread between batches.
    */
   async buildIndex(uuidIndex) {
     const termIndex = {};
     let totalWordCount = 0;
     let totalDocs = 0;
     const allTerms = /* @__PURE__ */ new Set();
-    for (const [uuid, entry] of Object.entries(uuidIndex)) {
-      const file = this.app.vault.getAbstractFileByPath(entry.path);
-      if (!file || !(file instanceof import_obsidian2.TFile)) continue;
-      const content = await this.app.vault.cachedRead(file);
-      const body = extractBodyText(content);
-      const truncated = body.length > this.maxTokenizationLength ? body.slice(0, this.maxTokenizationLength) : body;
-      const tokens = tokenizeWithPositions(truncated);
-      const termFreqs = /* @__PURE__ */ new Map();
-      for (const { term, position } of tokens) {
-        const existing = termFreqs.get(term);
-        if (existing) {
-          existing.count++;
-          existing.positions.push(position);
-        } else {
-          termFreqs.set(term, { count: 1, positions: [position] });
+    const entries = Object.entries(uuidIndex);
+    for (let i = 0; i < entries.length; i += this.batchSize) {
+      const batch = entries.slice(i, i + this.batchSize);
+      for (const [uuid, entry] of batch) {
+        const file = this.app.vault.getAbstractFileByPath(entry.path);
+        if (!file || !(file instanceof import_obsidian2.TFile)) continue;
+        const content = await this.app.vault.cachedRead(file);
+        const body = extractBodyText(content);
+        const truncated = body.length > this.maxTokenizationLength ? body.slice(0, this.maxTokenizationLength) : body;
+        const tokens = tokenizeWithPositions(truncated);
+        const termFreqs = /* @__PURE__ */ new Map();
+        for (const { term, position } of tokens) {
+          const existing = termFreqs.get(term);
+          if (existing) {
+            existing.count++;
+            if (this.storePositions) existing.positions.push(position);
+          } else {
+            termFreqs.set(term, { count: 1, positions: this.storePositions ? [position] : [] });
+          }
         }
-      }
-      for (const [term, { count, positions }] of termFreqs) {
-        allTerms.add(term);
-        let postings = termIndex[term];
-        if (!postings) {
-          postings = [];
-          termIndex[term] = postings;
+        for (const [term, { count, positions }] of termFreqs) {
+          allTerms.add(term);
+          let postings = termIndex[term];
+          if (!postings) {
+            postings = [];
+            termIndex[term] = postings;
+          }
+          const posting = { uuid, tf: count };
+          if (this.storePositions && positions.length > 0) {
+            posting.positions = positions;
+          }
+          postings.push(posting);
         }
-        postings.push({
-          uuid,
-          tf: count,
-          positions
-        });
+        totalWordCount += tokens.length;
+        totalDocs++;
       }
-      totalWordCount += tokens.length;
-      totalDocs++;
+      if (i + this.batchSize < entries.length) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
     }
     const corpusStats = {
       totalDocuments: totalDocs,
@@ -837,19 +862,22 @@ var TermIndexer = class {
       const existing = termFreqs.get(term);
       if (existing) {
         existing.count++;
-        existing.positions.push(position);
+        if (this.storePositions) existing.positions.push(position);
       } else {
-        termFreqs.set(term, { count: 1, positions: [position] });
+        termFreqs.set(term, { count: 1, positions: this.storePositions ? [position] : [] });
       }
     }
     for (const [term, { count, positions }] of termFreqs) {
-      postings.set(term, { uuid, tf: count, positions });
+      const posting = { uuid, tf: count };
+      if (this.storePositions && positions.length > 0) {
+        posting.positions = positions;
+      }
+      postings.set(term, posting);
     }
     return { postings, wordCount: tokens.length };
   }
   /**
    * Compute IDF for a term using the BM25 variant.
-   * IDF(t) = log((N - n(t) + 0.5) / (n(t) + 0.5) + 1)
    */
   computeIdf(term, termIndex, totalDocs) {
     const postings = termIndex[term];
@@ -1227,8 +1255,12 @@ var IndexManager = class {
     this.isIndexing = false;
     this.lastIndexTime = null;
     this.indexLoaded = false;
+    // Dirty tracking for selective persistence
+    this.dirtyIndexes = /* @__PURE__ */ new Set();
+    // Track whether documentTermSets needs rebuilding (lazy computation)
+    this.documentTermSetsDirty = true;
     this.uuidIndexer = new UuidIndexer(app);
-    this.termIndexer = new TermIndexer(app, settings.maxTokenizationLength);
+    this.termIndexer = new TermIndexer(app, settings.maxTokenizationLength, settings.storePositions, settings.indexBatchSize);
     this.tagIndexer = new TagIndexer();
     this.ngramIndexer = new NgramIndexer(settings.ngramSize);
     this.graphBuilder = new RelationGraphBuilder(app);
@@ -1261,12 +1293,16 @@ var IndexManager = class {
       onProgress == null ? void 0 : onProgress(`Term index: ${Object.keys(termIndex).length} unique terms`, 0.5);
       onProgress == null ? void 0 : onProgress("Building tag co-occurrence...", 0.6);
       this.tagCooccurrence = this.tagIndexer.buildIndex(uuidIndex);
-      onProgress == null ? void 0 : onProgress("Building n-gram index...", 0.7);
-      const ngramDocuments = /* @__PURE__ */ new Map();
-      for (const [uuid, entry] of Object.entries(uuidIndex)) {
-        ngramDocuments.set(uuid, `${entry.title} ${entry.path}`);
+      if (this.settings.enableNgramIndex) {
+        onProgress == null ? void 0 : onProgress("Building n-gram index...", 0.7);
+        const ngramDocuments = /* @__PURE__ */ new Map();
+        for (const [uuid, entry] of Object.entries(uuidIndex)) {
+          ngramDocuments.set(uuid, `${entry.title} ${entry.path}`);
+        }
+        this.ngramIndex = this.ngramIndexer.buildIndex(ngramDocuments);
+      } else {
+        this.ngramIndex = {};
       }
-      this.ngramIndex = this.ngramIndexer.buildIndex(ngramDocuments);
       onProgress == null ? void 0 : onProgress("Building relation graph...", 0.8);
       const { graph, warnings: graphWarnings } = this.graphBuilder.buildGraph(uuidIndex);
       this.relationGraph = graph;
@@ -1281,7 +1317,8 @@ var IndexManager = class {
         }
       );
       this.rebuildPathMap();
-      this.rebuildDocumentTermSets();
+      this.documentTermSetsDirty = true;
+      this.markAllDirty();
       this.corpusStats.lastIndexedAt = Date.now();
       await this.saveAllIndexes();
       this.lastIndexTime = this.corpusStats.lastIndexedAt;
@@ -1384,6 +1421,9 @@ var IndexManager = class {
         }
       );
       this.corpusStats.lastIndexedAt = Date.now();
+      this.documentTermSetsDirty = true;
+      this.markDirty("uuid", "term", "tag", "graph", "docStats", "corpusStats");
+      if (this.settings.enableNgramIndex) this.markDirty("ngram");
       await this.saveAllIndexes();
       this.lastIndexTime = this.corpusStats.lastIndexedAt;
     } catch (e) {
@@ -1441,18 +1481,20 @@ var IndexManager = class {
       }
       this.termIndex[term].push(posting);
     }
-    this.documentTermSets.set(uuid, new Set(postings.keys()));
-    const ngramText = `${entry.title} ${entry.path}`;
-    const ngramDocs = /* @__PURE__ */ new Map();
-    ngramDocs.set(uuid, ngramText);
-    const newNgrams = this.ngramIndexer.buildIndex(ngramDocs);
-    for (const [ngram, uuids] of Object.entries(newNgrams)) {
-      if (!uuids) continue;
-      const existingNgram = this.ngramIndex[ngram];
-      if (!existingNgram) {
-        this.ngramIndex[ngram] = [];
+    this.documentTermSetsDirty = true;
+    if (this.settings.enableNgramIndex) {
+      const ngramText = `${entry.title} ${entry.path}`;
+      const ngramDocs = /* @__PURE__ */ new Map();
+      ngramDocs.set(uuid, ngramText);
+      const newNgrams = this.ngramIndexer.buildIndex(ngramDocs);
+      for (const [ngram, uuids] of Object.entries(newNgrams)) {
+        if (!uuids) continue;
+        const existingNgram = this.ngramIndex[ngram];
+        if (!existingNgram) {
+          this.ngramIndex[ngram] = [];
+        }
+        this.ngramIndex[ngram].push(...uuids);
       }
-      this.ngramIndex[ngram].push(...uuids);
     }
     const fm = parseFrontmatter(cache);
     if (fm) {
@@ -1487,7 +1529,7 @@ var IndexManager = class {
         this.documentStats = docStats != null ? docStats : {};
         this.corpusStats = corpus != null ? corpus : { totalDocuments: 0, avgDocumentLength: 0, totalTerms: 0 };
         this.rebuildPathMap();
-        this.rebuildDocumentTermSets();
+        this.documentTermSetsDirty = true;
         this.indexLoaded = true;
         this.lastIndexTime = (_a = this.corpusStats.lastIndexedAt) != null ? _a : null;
         console.log(`Smart Relations: Loaded indexes from disk (${Object.keys(this.uuidIndex).length} notes)`);
@@ -1500,15 +1542,35 @@ var IndexManager = class {
     }
   }
   async saveAllIndexes() {
-    await Promise.all([
-      this.cache.saveIndex(INDEX_FILES.uuid, this.uuidIndex),
-      this.cache.saveIndex(INDEX_FILES.term, this.termIndex),
-      this.cache.saveIndex(INDEX_FILES.tag, this.tagCooccurrence),
-      this.cache.saveIndex(INDEX_FILES.ngram, this.ngramIndex),
-      this.cache.saveIndex(INDEX_FILES.graph, this.relationGraph),
-      this.cache.saveIndex(INDEX_FILES.docStats, this.documentStats),
-      this.cache.saveIndex(INDEX_FILES.corpusStats, this.corpusStats)
-    ]);
+    const writes = [];
+    const indexMap = {
+      uuid: this.uuidIndex,
+      term: this.termIndex,
+      tag: this.tagCooccurrence,
+      ngram: this.ngramIndex,
+      graph: this.relationGraph,
+      docStats: this.documentStats,
+      corpusStats: this.corpusStats
+    };
+    for (const key of this.dirtyIndexes) {
+      const filename = INDEX_FILES[key];
+      const data = indexMap[key];
+      if (filename && data !== void 0) {
+        writes.push(this.cache.saveIndex(filename, data));
+      }
+    }
+    if (writes.length > 0) {
+      await Promise.all(writes);
+    }
+    this.dirtyIndexes.clear();
+  }
+  markDirty(...keys) {
+    for (const key of keys) {
+      this.dirtyIndexes.add(key);
+    }
+  }
+  markAllDirty() {
+    this.markDirty("uuid", "term", "tag", "ngram", "graph", "docStats", "corpusStats");
   }
   // ==================== Accessors ====================
   getUuidIndex() {
@@ -1533,6 +1595,10 @@ var IndexManager = class {
     return this.corpusStats;
   }
   getDocumentTermSets() {
+    if (this.documentTermSetsDirty) {
+      this.rebuildDocumentTermSets();
+      this.documentTermSetsDirty = false;
+    }
     return this.documentTermSets;
   }
   getUuidForFile(file) {
@@ -2039,6 +2105,8 @@ var SmartRelationsPlugin = class extends import_obsidian7.Plugin {
     super(...arguments);
     this.settings = DEFAULT_SETTINGS;
     this.statusBarEl = null;
+    this.leafChangeTimer = null;
+    this.leafChangeGeneration = 0;
   }
   async onload() {
     await this.loadSettings();
@@ -2090,7 +2158,7 @@ var SmartRelationsPlugin = class extends import_obsidian7.Plugin {
       }
     }));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
-      this.refreshRelatedPanel();
+      this.debouncedRefreshRelatedPanel();
     }));
     this.addRibbonIcon("network", "Reindex vault", () => {
       void this.reindexVault();
@@ -2128,6 +2196,9 @@ var SmartRelationsPlugin = class extends import_obsidian7.Plugin {
     this.updateStatusBarDefault();
   }
   onunload() {
+    if (this.leafChangeTimer !== null) {
+      window.clearTimeout(this.leafChangeTimer);
+    }
     this.indexManager.destroy();
     console.log("Smart Relations: unloading plugin");
   }
@@ -2183,6 +2254,19 @@ var SmartRelationsPlugin = class extends import_obsidian7.Plugin {
       }
     }
     this.refreshRelatedPanel();
+  }
+  debouncedRefreshRelatedPanel() {
+    if (this.leafChangeTimer !== null) {
+      window.clearTimeout(this.leafChangeTimer);
+    }
+    this.leafChangeGeneration++;
+    const gen = this.leafChangeGeneration;
+    this.leafChangeTimer = window.setTimeout(() => {
+      this.leafChangeTimer = null;
+      if (gen === this.leafChangeGeneration) {
+        this.refreshRelatedPanel();
+      }
+    }, 300);
   }
   refreshRelatedPanel() {
     const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_RELATED);

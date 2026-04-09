@@ -3,11 +3,16 @@ import { tokenizeWithPositions, extractBodyText } from '../nlp/tokenizer';
 import { TermIndex, TermPosting, UuidIndex, CorpusStats } from './types';
 
 export class TermIndexer {
-  constructor(private app: App, private maxTokenizationLength: number = 50000) {}
+  constructor(
+    private app: App,
+    private maxTokenizationLength: number = 50000,
+    private storePositions: boolean = true,
+    private batchSize: number = 50
+  ) {}
 
   /**
    * Build the complete term index from all files.
-   * Only indexes files that have a UUID in the UuidIndex.
+   * Processes files in batches, yielding to the UI thread between batches.
    */
   async buildIndex(
     uuidIndex: UuidIndex
@@ -17,49 +22,58 @@ export class TermIndexer {
     let totalDocs = 0;
     const allTerms = new Set<string>();
 
-    // Iterate over UUID index entries (only indexed files)
-    for (const [uuid, entry] of Object.entries(uuidIndex)) {
-      const file = this.app.vault.getAbstractFileByPath(entry.path);
-      if (!file || !(file instanceof TFile)) continue;
+    const entries = Object.entries(uuidIndex);
 
-      const content = await this.app.vault.cachedRead(file);
-      const body = extractBodyText(content);
-      // Cap tokenization length for very long notes
-      const truncated = body.length > this.maxTokenizationLength
-        ? body.slice(0, this.maxTokenizationLength)
-        : body;
+    for (let i = 0; i < entries.length; i += this.batchSize) {
+      const batch = entries.slice(i, i + this.batchSize);
 
-      const tokens = tokenizeWithPositions(truncated);
+      for (const [uuid, entry] of batch) {
+        const file = this.app.vault.getAbstractFileByPath(entry.path);
+        if (!file || !(file instanceof TFile)) continue;
 
-      // Build per-document term frequency map
-      const termFreqs = new Map<string, { count: number; positions: number[] }>();
-      for (const { term, position } of tokens) {
-        const existing = termFreqs.get(term);
-        if (existing) {
-          existing.count++;
-          existing.positions.push(position);
-        } else {
-          termFreqs.set(term, { count: 1, positions: [position] });
+        const content = await this.app.vault.cachedRead(file);
+        const body = extractBodyText(content);
+        const truncated = body.length > this.maxTokenizationLength
+          ? body.slice(0, this.maxTokenizationLength)
+          : body;
+
+        const tokens = tokenizeWithPositions(truncated);
+
+        // Build per-document term frequency map
+        const termFreqs = new Map<string, { count: number; positions: number[] }>();
+        for (const { term, position } of tokens) {
+          const existing = termFreqs.get(term);
+          if (existing) {
+            existing.count++;
+            if (this.storePositions) existing.positions.push(position);
+          } else {
+            termFreqs.set(term, { count: 1, positions: this.storePositions ? [position] : [] });
+          }
         }
+
+        // Add to global term index
+        for (const [term, { count, positions }] of termFreqs) {
+          allTerms.add(term);
+          let postings = termIndex[term];
+          if (!postings) {
+            postings = [];
+            termIndex[term] = postings;
+          }
+          const posting: TermPosting = { uuid, tf: count };
+          if (this.storePositions && positions.length > 0) {
+            posting.positions = positions;
+          }
+          postings.push(posting);
+        }
+
+        totalWordCount += tokens.length;
+        totalDocs++;
       }
 
-      // Add to global term index
-      for (const [term, { count, positions }] of termFreqs) {
-        allTerms.add(term);
-        let postings = termIndex[term];
-        if (!postings) {
-          postings = [];
-          termIndex[term] = postings;
-        }
-        postings.push({
-          uuid,
-          tf: count,
-          positions,
-        });
+      // Yield to UI thread between batches
+      if (i + this.batchSize < entries.length) {
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
       }
-
-      totalWordCount += tokens.length;
-      totalDocs++;
     }
 
     const corpusStats: CorpusStats = {
@@ -91,14 +105,18 @@ export class TermIndexer {
       const existing = termFreqs.get(term);
       if (existing) {
         existing.count++;
-        existing.positions.push(position);
+        if (this.storePositions) existing.positions.push(position);
       } else {
-        termFreqs.set(term, { count: 1, positions: [position] });
+        termFreqs.set(term, { count: 1, positions: this.storePositions ? [position] : [] });
       }
     }
 
     for (const [term, { count, positions }] of termFreqs) {
-      postings.set(term, { uuid, tf: count, positions });
+      const posting: TermPosting = { uuid, tf: count };
+      if (this.storePositions && positions.length > 0) {
+        posting.positions = positions;
+      }
+      postings.set(term, posting);
     }
 
     return { postings, wordCount: tokens.length };
@@ -106,7 +124,6 @@ export class TermIndexer {
 
   /**
    * Compute IDF for a term using the BM25 variant.
-   * IDF(t) = log((N - n(t) + 0.5) / (n(t) + 0.5) + 1)
    */
   computeIdf(term: string, termIndex: TermIndex, totalDocs: number): number {
     const postings = termIndex[term];

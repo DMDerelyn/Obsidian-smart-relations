@@ -146,3 +146,332 @@
   font-family: var(--font-monospace);
   font-size: 11px;
 }
+
+/* Mobile overrides — Obsidian adds .is-mobile to body on mobile devices */
+.is-mobile .smart-relations-container {
+  padding: 10px;
+}
+
+.is-mobile .sr-result-item {
+  padding: 12px;
+}
+
+.is-mobile .sr-result-title {
+  font-size: 15px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+
+.is-mobile .sr-refresh-btn {
+  padding: 8px 12px;
+  min-width: 44px;
+  min-height: 44px;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.is-mobile .sr-result-score {
+  font-size: 12px;
+  padding: 2px 8px;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+}
+
+.is-mobile .sr-result-breakdown summary {
+  font-size: 13px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+
+.is-mobile .sr-score-row {
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.is-mobile .sr-score-label,
+.is-mobile .sr-score-value {
+  font-size: 13px;
+}
+
+/* ===== Settings Page Styles ===== */
+
+/* About section */
+.sr-settings-about {
+  margin-bottom: 16px;
+}
+
+.sr-settings-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.sr-settings-header h2 {
+  margin: 0;
+}
+
+.sr-version-badge {
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.sr-about-desc {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin: 4px 0 8px;
+  max-width: 600px;
+  line-height: 1.5;
+}
+
+.sr-links {
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.sr-links a {
+  color: var(--text-accent);
+  text-decoration: none;
+}
+
+.sr-links a:hover {
+  text-decoration: underline;
+}
+
+/* Status panel */
+.sr-status-panel {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 12px 0;
+}
+
+.sr-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.sr-stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sr-stat-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.sr-stat-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.sr-status-ok {
+  color: var(--text-success, #4caf50);
+}
+
+.sr-status-warn {
+  color: var(--text-error, #f44336);
+}
+
+.sr-status-indexing {
+  color: var(--text-accent);
+  animation: sr-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes sr-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.sr-status-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}
+
+/* Sample connections */
+.sr-sample-connection {
+  background: var(--background-secondary-alt);
+  border-radius: 6px;
+  padding: 10px;
+  margin-top: 10px;
+}
+
+.sr-sample-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.sr-sample-item {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  padding: 3px 0;
+  color: var(--text-normal);
+}
+
+.sr-sample-arrow {
+  margin: 0 8px;
+  color: var(--text-muted);
+}
+
+.sr-sample-score {
+  font-family: var(--font-monospace);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.sr-sample-empty,
+.sr-sample-loading {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Collapsible sections */
+.sr-settings-section {
+  margin-top: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.sr-settings-section summary {
+  padding: 12px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  user-select: none;
+  list-style: none;
+}
+
+.sr-settings-section summary::-webkit-details-marker {
+  display: none;
+}
+
+.sr-settings-section summary::before {
+  content: '\u25B6';
+  display: inline-block;
+  margin-right: 8px;
+  font-size: 10px;
+  transition: transform 0.15s ease;
+}
+
+.sr-settings-section[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.sr-settings-section summary:hover {
+  background: var(--background-modifier-hover);
+}
+
+.sr-settings-section[open] summary {
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.sr-settings-section-content {
+  padding: 8px 16px 16px;
+}
+
+.sr-section-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 4px 0 12px;
+  line-height: 1.5;
+}
+
+/* Scoring weight sum indicator */
+.sr-scoring-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
+.sr-weight-sum {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  display: inline-block;
+  margin-left: 4px;
+}
+
+.sr-weight-sum.is-balanced {
+  background: var(--background-modifier-success, rgba(76, 175, 80, 0.2));
+  color: var(--text-success, #4caf50);
+}
+
+.sr-weight-sum.is-close {
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+}
+
+.sr-weight-sum.is-off {
+  background: var(--background-modifier-error, rgba(244, 67, 54, 0.2));
+  color: var(--text-error, #f44336);
+}
+
+/* Claude integration deploy */
+.sr-deploy-status {
+  font-size: 12px;
+  padding: 4px 0;
+  color: var(--text-muted);
+}
+
+.sr-deploy-status.is-deployed {
+  color: var(--text-success, #4caf50);
+}
+
+.sr-deploy-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+/* Mobile overrides for settings */
+.is-mobile .sr-status-grid {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.is-mobile .sr-settings-section summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  font-size: 16px;
+}
+
+.is-mobile .sr-sample-item {
+  font-size: 14px;
+  padding: 6px 0;
+}
+
+.is-mobile .sr-deploy-actions button {
+  min-height: 44px;
+}

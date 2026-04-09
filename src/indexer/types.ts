@@ -13,7 +13,7 @@ export type UuidIndex = Record<string, UuidEntry>;
 export interface TermPosting {
   uuid: string;
   tf: number;          // raw term frequency
-  positions: number[]; // character offsets in original text
+  positions?: number[]; // character offsets — optional, disabled on mobile for memory savings
 }
 export type TermIndex = Record<string, TermPosting[]>;
 

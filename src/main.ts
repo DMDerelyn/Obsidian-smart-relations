@@ -135,6 +135,14 @@ export default class SmartRelationsPlugin extends Plugin {
     console.log('Smart Relations: unloading plugin');
   }
 
+  getIndexManager(): IndexManager {
+    return this.indexManager;
+  }
+
+  getScorer(): CombinedScorer {
+    return this.scorer;
+  }
+
   async loadSettings(): Promise<void> {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
   }

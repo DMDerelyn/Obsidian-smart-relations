@@ -31,6 +31,220 @@ var import_obsidian7 = require("obsidian");
 
 // src/settings.ts
 var import_obsidian = require("obsidian");
+
+// src/claude-md-content.ts
+var CLAUDE_MD_CONTENT = `# Smart Relations \u2014 Instructions for Claude Code
+
+This vault uses the **Smart Relations** Obsidian plugin, which builds local RAG-style indexes over all markdown notes. You can use these indexes to efficiently find and read the most relevant notes when answering questions, instead of scanning the entire vault.
+
+## Index Location
+
+The indexes are stored as JSON files at:
+
+\`\`\`
+.obsidian/plugins/smart-relations/
+\`\`\`
+
+If the user\u2019s vault is at \`/path/to/vault\`, the indexes are at \`/path/to/vault/.obsidian/plugins/smart-relations/\`.
+
+## Available Indexes
+
+### \`_uuid_index.json\` \u2014 Note Catalog (Read This First)
+
+Maps every note\u2019s UUID to its metadata. This is your starting point for any query.
+
+\`\`\`json
+{
+  "550e8400-e29b-41d4-a716-446655440000": {
+    "path": "Research/neural-networks.md",
+    "title": "Neural Networks",
+    "type": "knowledge",
+    "tags": ["science", "ai", "machine-learning"],
+    "relationCount": 3,
+    "lastModified": 1712534400000
+  }
+}
+\`\`\`
+
+**Use this to:** Browse all notes, filter by tags or type, find note paths.
+
+### \`_term_index.json\` \u2014 Inverted Term Index (For Text Search)
+
+Maps every stemmed term to the documents containing it, with term frequency.
+
+\`\`\`json
+{
+  "neural": [
+    { "uuid": "550e8400-...", "tf": 12, "positions": [45, 102, ...] },
+    { "uuid": "f47ac10b-...", "tf": 3, "positions": [200] }
+  ],
+  "network": [
+    { "uuid": "550e8400-...", "tf": 8, "positions": [52, 110, ...] }
+  ]
+}
+\`\`\`
+
+**Use this to:** Find which notes mention specific terms. Higher \`tf\` = more mentions.
+
+**Important:** Terms are Porter-stemmed. To search for "running", look up "run". To search for "networks", look up "network". Common transformations:
+- Plurals: cats \u2192 cat, studies \u2192 studi, ponies \u2192 poni
+- -ing: running \u2192 run, computing \u2192 comput
+- -ed: connected \u2192 connect, learned \u2192 learn
+- -tion: regulation \u2192 regul, classification \u2192 classif
+
+### \`_tag_cooccurrence.json\` \u2014 Tag Relationships
+
+Shows which tags appear together across notes.
+
+\`\`\`json
+{
+  "science": { "ai": 5, "research": 3, "ethics": 2 },
+  "ai": { "science": 5, "legal": 2, "ethics": 4 }
+}
+\`\`\`
+
+**Use this to:** Find topically related areas, understand the vault\u2019s knowledge structure.
+
+### \`_relation_graph.json\` \u2014 Note Connections
+
+Bidirectional graph of explicit note-to-note relationships from frontmatter \`related:\` fields.
+
+\`\`\`json
+{
+  "550e8400-...": [
+    { "target": "f47ac10b-...", "type": "related", "weight": 1.0 }
+  ]
+}
+\`\`\`
+
+**Use this to:** Follow chains of related notes, find connected clusters.
+
+### \`_document_stats.json\` \u2014 Document Statistics
+
+Per-document word count, unique terms, and TF-IDF vector norm.
+
+\`\`\`json
+{
+  "550e8400-...": {
+    "wordCount": 450,
+    "uniqueTerms": 120,
+    "avgTermFrequency": 3.75,
+    "vectorNorm": 12.5,
+    "lastModified": 1712534400000
+  }
+}
+\`\`\`
+
+### \`_corpus_stats.json\` \u2014 Vault-Wide Statistics
+
+\`\`\`json
+{
+  "totalDocuments": 234,
+  "avgDocumentLength": 380,
+  "totalTerms": 8500
+}
+\`\`\`
+
+## How to Answer Questions Using the Indexes
+
+### Method 1: CLI Query Tool (if Node.js is available)
+
+Run the bundled query tool:
+
+\`\`\`bash
+node query.mjs /path/to/vault "your search query" --top 10
+\`\`\`
+
+This performs BM25 + tag + term overlap scoring and returns ranked results. Add \`--json\` for machine-readable output. Then read the top-scoring files.
+
+### Method 2: Read Indexes Directly (no dependencies needed)
+
+When the user asks a question about their vault, follow this process:
+
+#### Step 1: Read the UUID index to understand the vault
+
+\`\`\`
+Read .obsidian/plugins/smart-relations/_uuid_index.json
+\`\`\`
+
+Scan the titles, tags, and types to get an overview. This file is usually small enough to read in one pass.
+
+#### Step 2: Identify relevant terms
+
+From the user\u2019s question, extract key terms. Apply basic stemming mentally:
+- Drop common suffixes: -ing, -ed, -tion, -ly, -ness, -ment
+- Handle plurals: drop trailing -s, -es
+
+#### Step 3: Look up terms in the term index
+
+\`\`\`
+Read .obsidian/plugins/smart-relations/_term_index.json
+\`\`\`
+
+This file can be large. If it\u2019s too big to read at once, use Grep to search for specific terms:
+
+\`\`\`
+Grep for "\\"dragon\\"" in .obsidian/plugins/smart-relations/_term_index.json
+\`\`\`
+
+For each term, note which UUIDs appear and their term frequency (\`tf\`). Notes appearing for multiple query terms with high tf values are the most relevant.
+
+#### Step 4: Rank by relevance
+
+Count how many of your query terms each note matches. Weight by term frequency. The notes that match the most query terms with the highest frequencies are your best candidates.
+
+Quick ranking heuristic (no math needed):
+- Note matches 3+ query terms \u2192 **highly relevant**, read it
+- Note matches 2 query terms \u2192 **relevant**, read if top results are thin
+- Note matches 1 query term with high tf (>5) \u2192 **possibly relevant**
+- Note matches 1 query term with low tf (1-2) \u2192 **skip unless desperate**
+
+#### Step 5: Also check tags
+
+Cross-reference the user\u2019s question topic with tags in the UUID index. If the user asks about "AI ethics", filter for notes tagged \`ai\`, \`ethics\`, or both.
+
+#### Step 6: Read the top files
+
+Use the \`path\` field from the UUID index to read the actual note content. Read the top 3-5 most relevant notes, then answer the question.
+
+### Method 3: Tag-Based Discovery
+
+If the user\u2019s question maps cleanly to a topic area:
+
+1. Read \`_uuid_index.json\`
+2. Filter entries by matching tags
+3. Read those files directly
+
+This is fastest when the vault is well-tagged and the question maps to a specific domain.
+
+## Example Workflow
+
+**User asks:** "What are the key concepts in contract law?"
+
+1. Read \`_uuid_index.json\` \u2014 scan for notes with tags containing "legal" or "contract"
+2. Find: \`legal-contract-law-basics.md\` (tags: legal, contracts, basics)
+3. Also grep \`_term_index.json\` for "contract" \u2014 find additional notes mentioning contracts
+4. Read the top 2-3 matching files
+5. Answer using their content
+
+**User asks:** "How do dragons relate to my creative writing notes?"
+
+1. Grep \`_term_index.json\` for "dragon" \u2014 find all notes mentioning dragons
+2. Cross-reference with UUID index to get paths and tags
+3. Check \`_relation_graph.json\` for explicit connections between dragon-related notes
+4. Read the connected notes
+5. Answer showing the cross-domain connections
+
+## Important Notes
+
+- **Indexes may be stale** \u2014 If the user has edited notes since the last reindex, suggest they run "Reindex vault" in Obsidian first
+- **The term index uses Porter stemming** \u2014 Search for stemmed forms, not raw words
+- **UUIDs are the canonical identifiers** \u2014 Always use UUIDs to cross-reference between indexes, never file paths (paths can change)
+- **The \`_term_index.json\` can be large** \u2014 For vaults with 1000+ notes, it may be several MB. Use Grep to search for specific terms rather than reading the whole file
+- **All indexes are deterministic** \u2014 Same vault content always produces the same indexes. No randomness or external data
+`;
+
+// src/settings.ts
 var DEFAULT_SETTINGS = {
   excludedFolders: [],
   scoringWeights: {
@@ -46,64 +260,335 @@ var DEFAULT_SETTINGS = {
   maxTokenizationLength: 5e4,
   enableNgramIndex: true,
   storePositions: true,
-  indexBatchSize: 50
+  indexBatchSize: 50,
+  claudeMdFolder: ""
 };
 var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
+    this.weightSumEl = null;
     this.plugin = plugin;
   }
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "Smart Relations Settings" });
-    new import_obsidian.Setting(containerEl).setName("Excluded folders").setDesc("Comma-separated list of folders to exclude from indexing").addText((text) => text.setPlaceholder("templates, archive").setValue(this.plugin.settings.excludedFolders.join(", ")).onChange(async (value) => {
+    containerEl.addClass("sr-settings");
+    this.renderAboutAndStatus(containerEl);
+    this.renderClaudeIntegration(containerEl);
+    this.renderIndexingSection(containerEl);
+    this.renderScoringSection(containerEl);
+    this.renderPerformanceSection(containerEl);
+  }
+  // ==================== Section 1: About & Status ====================
+  renderAboutAndStatus(containerEl) {
+    const about = containerEl.createEl("div", { cls: "sr-settings-about" });
+    const header = about.createEl("div", { cls: "sr-settings-header" });
+    header.createEl("h2", { text: "Smart Relations" });
+    header.createEl("span", {
+      cls: "sr-version-badge",
+      text: `v${this.plugin.manifest.version}`
+    });
+    about.createEl("p", {
+      cls: "sr-about-desc",
+      text: "Build local vectorization indexes for RAG-style retrieval and relation discovery. Entirely offline \u2014 no API calls, no cloud services. Scores notes using BM25, tag similarity, term overlap, and relation graph proximity."
+    });
+    const links = about.createEl("div", { cls: "sr-links" });
+    const ghLink = links.createEl("a", { text: "GitHub", href: "#" });
+    ghLink.setAttribute("href", "https://github.com/DMDerelyn/Obsidian-smart-relations");
+    links.createEl("span", { text: " \xB7 " });
+    const docsLink = links.createEl("a", { text: "Documentation", href: "#" });
+    docsLink.setAttribute("href", "https://github.com/DMDerelyn/Obsidian-smart-relations#readme");
+    this.renderStatusPanel(about);
+    const sampleEl = about.createEl("div", { cls: "sr-sample-connection" });
+    sampleEl.createEl("div", { cls: "sr-sample-title", text: "Sample Connections" });
+    sampleEl.createEl("div", { cls: "sr-sample-loading", text: "Loading..." });
+    void this.renderSampleConnection(sampleEl);
+  }
+  renderStatusPanel(container) {
+    const im = this.plugin.getIndexManager();
+    const panel = container.createEl("div", { cls: "sr-status-panel" });
+    const grid = panel.createEl("div", { cls: "sr-status-grid" });
+    const statusItem = grid.createEl("div", { cls: "sr-stat-item" });
+    statusItem.createEl("span", { cls: "sr-stat-label", text: "Index Status" });
+    if (im.isCurrentlyIndexing()) {
+      statusItem.createEl("span", { cls: "sr-stat-value sr-status-indexing", text: "Indexing..." });
+    } else if (im.isLoaded()) {
+      statusItem.createEl("span", { cls: "sr-stat-value sr-status-ok", text: "Indexed" });
+    } else {
+      statusItem.createEl("span", { cls: "sr-stat-value sr-status-warn", text: "Not indexed" });
+    }
+    const corpus = im.getCorpusStats();
+    this.addStatItem(grid, "Notes", im.isLoaded() ? `${corpus.totalDocuments}` : "\u2014");
+    this.addStatItem(grid, "Unique Terms", im.isLoaded() ? `${corpus.totalTerms.toLocaleString()}` : "\u2014");
+    this.addStatItem(grid, "Avg Length", im.isLoaded() ? `${Math.round(corpus.avgDocumentLength)} words` : "\u2014");
+    const lastTime = im.getLastIndexTime();
+    const timeStr = lastTime ? this.formatRelativeTime(lastTime) : "never";
+    this.addStatItem(grid, "Last Indexed", timeStr);
+    if (im.isLoaded()) {
+      const dirtyCount = im.getDirtyFiles().length;
+      const dirtyText = dirtyCount > 0 ? `${dirtyCount} pending` : "up to date";
+      this.addStatItem(grid, "Changes", dirtyText);
+    } else {
+      this.addStatItem(grid, "Changes", "\u2014");
+    }
+    const actions = panel.createEl("div", { cls: "sr-status-actions" });
+    const reindexBtn = actions.createEl("button", { cls: "mod-cta", text: "Reindex vault" });
+    reindexBtn.addEventListener("click", () => {
+      new import_obsidian.Notice("Smart Relations: Reindexing vault...");
+      void im.rebuildAll((msg) => {
+        reindexBtn.setText(msg);
+      }).then(() => {
+        new import_obsidian.Notice("Smart Relations: Reindex complete!");
+        this.display();
+      });
+    });
+  }
+  addStatItem(grid, label, value) {
+    const item = grid.createEl("div", { cls: "sr-stat-item" });
+    item.createEl("span", { cls: "sr-stat-label", text: label });
+    item.createEl("span", { cls: "sr-stat-value", text: value });
+  }
+  async renderSampleConnection(container) {
+    const im = this.plugin.getIndexManager();
+    if (!im.isLoaded()) {
+      if (container.isConnected) {
+        container.empty();
+        container.createEl("div", { cls: "sr-sample-title", text: "Sample Connections" });
+        container.createEl("div", {
+          cls: "sr-sample-empty",
+          text: "No connections available \u2014 index the vault first"
+        });
+      }
+      return;
+    }
+    try {
+      const files = this.app.vault.getMarkdownFiles().sort((a, b) => b.stat.mtime - a.stat.mtime);
+      let sourceFile = null;
+      let sourceUuid = null;
+      for (const f of files) {
+        const uuid = im.getUuidForFile(f);
+        if (uuid) {
+          sourceFile = f;
+          sourceUuid = uuid;
+          break;
+        }
+      }
+      if (!sourceFile || !sourceUuid) {
+        if (container.isConnected) {
+          container.empty();
+          container.createEl("div", { cls: "sr-sample-title", text: "Sample Connections" });
+          container.createEl("div", { cls: "sr-sample-empty", text: "No notes with UUIDs found" });
+        }
+        return;
+      }
+      const results = await this.plugin.getScorer().findRelated(
+        { type: "uuid", uuid: sourceUuid },
+        3
+      );
+      if (!container.isConnected) return;
+      container.empty();
+      container.createEl("div", { cls: "sr-sample-title", text: "Sample Connections" });
+      if (results.length === 0) {
+        container.createEl("div", { cls: "sr-sample-empty", text: "No connections found for recent notes" });
+        return;
+      }
+      const sourceTitle = sourceFile.basename;
+      for (const result of results) {
+        const row = container.createEl("div", { cls: "sr-sample-item" });
+        row.createEl("span", { text: sourceTitle });
+        row.createEl("span", { cls: "sr-sample-arrow", text: "\u2192" });
+        row.createEl("span", { text: result.title });
+        row.createEl("span", {
+          cls: "sr-sample-score",
+          text: result.combinedScore.toFixed(2)
+        });
+      }
+    } catch (e) {
+      if (container.isConnected) {
+        container.empty();
+        container.createEl("div", { cls: "sr-sample-title", text: "Sample Connections" });
+        container.createEl("div", { cls: "sr-sample-empty", text: "Could not load sample connections" });
+      }
+    }
+  }
+  // ==================== Section 2: Claude Code Integration ====================
+  renderClaudeIntegration(containerEl) {
+    const content = this.createCollapsibleSection(containerEl, "Claude Code Integration");
+    const desc = content.createEl("p", { cls: "sr-section-desc" });
+    desc.setText(
+      "CLAUDE.md is a special file that tells Claude Code how to use your vault's indexes for RAG-style queries. When placed in your vault, Claude Code automatically discovers it and can efficiently search your notes using the pre-built indexes instead of scanning every file."
+    );
+    new import_obsidian.Setting(content).setName("Deploy CLAUDE.md to folder").setDesc("Choose a vault folder where CLAUDE.md will be placed. Leave empty to skip deployment.").addText((text) => text.setPlaceholder("e.g., Library/Knowledge").setValue(this.plugin.settings.claudeMdFolder).onChange(async (value) => {
+      this.plugin.settings.claudeMdFolder = value.trim();
+      await this.plugin.saveSettings();
+      this.updateDeployStatus(statusEl);
+    }));
+    const statusEl = content.createEl("div", { cls: "sr-deploy-status" });
+    this.updateDeployStatus(statusEl);
+    const actions = content.createEl("div", { cls: "sr-deploy-actions" });
+    const deployBtn = actions.createEl("button", { cls: "mod-cta", text: "Deploy / Update" });
+    deployBtn.addEventListener("click", async () => {
+      const folder = this.plugin.settings.claudeMdFolder.trim();
+      if (!folder) {
+        new import_obsidian.Notice("Set a folder path first");
+        return;
+      }
+      try {
+        const folderExists = await this.app.vault.adapter.exists(folder);
+        if (!folderExists) {
+          await this.app.vault.adapter.mkdir(folder);
+        }
+        const targetPath = `${folder}/CLAUDE.md`;
+        await this.app.vault.adapter.write(targetPath, CLAUDE_MD_CONTENT);
+        new import_obsidian.Notice(`CLAUDE.md deployed to ${targetPath}`);
+        this.updateDeployStatus(statusEl);
+      } catch (e) {
+        new import_obsidian.Notice("Failed to deploy CLAUDE.md \u2014 check the folder path");
+        console.error("Smart Relations: CLAUDE.md deploy failed:", e);
+      }
+    });
+    const removeBtn = actions.createEl("button", { text: "Remove" });
+    removeBtn.addEventListener("click", async () => {
+      const folder = this.plugin.settings.claudeMdFolder.trim();
+      if (!folder) return;
+      const targetPath = `${folder}/CLAUDE.md`;
+      try {
+        const exists = await this.app.vault.adapter.exists(targetPath);
+        if (exists) {
+          await this.app.vault.adapter.remove(targetPath);
+          new import_obsidian.Notice("CLAUDE.md removed");
+        } else {
+          new import_obsidian.Notice("CLAUDE.md not found at that location");
+        }
+        this.updateDeployStatus(statusEl);
+      } catch (e) {
+        new import_obsidian.Notice("Failed to remove CLAUDE.md");
+        console.error("Smart Relations: CLAUDE.md remove failed:", e);
+      }
+    });
+  }
+  updateDeployStatus(statusEl) {
+    const folder = this.plugin.settings.claudeMdFolder.trim();
+    statusEl.empty();
+    if (!folder) {
+      statusEl.setText("Not deployed");
+      statusEl.removeClass("is-deployed");
+    } else {
+      void this.app.vault.adapter.exists(`${folder}/CLAUDE.md`).then((exists) => {
+        if (!statusEl.isConnected) return;
+        statusEl.empty();
+        if (exists) {
+          statusEl.addClass("is-deployed");
+          statusEl.setText(`Deployed to ${folder}/CLAUDE.md`);
+        } else {
+          statusEl.removeClass("is-deployed");
+          statusEl.setText(`Not yet deployed (folder: ${folder})`);
+        }
+      });
+    }
+  }
+  // ==================== Section 3: Indexing ====================
+  renderIndexingSection(containerEl) {
+    const content = this.createCollapsibleSection(containerEl, "Indexing", true);
+    new import_obsidian.Setting(content).setName("Excluded folders").setDesc("Comma-separated list of folders to exclude from indexing").addText((text) => text.setPlaceholder("templates, archive").setValue(this.plugin.settings.excludedFolders.join(", ")).onChange(async (value) => {
       this.plugin.settings.excludedFolders = value.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
       await this.plugin.saveSettings();
     }));
-    new import_obsidian.Setting(containerEl).setName("Rich related format").setDesc("Use object format {uuid, rel, auto} instead of simple UUID strings in related field").addToggle((toggle) => toggle.setValue(this.plugin.settings.useRichRelatedFormat).onChange(async (value) => {
+    new import_obsidian.Setting(content).setName("Rich related format").setDesc("Use object format {uuid, rel, auto} instead of simple UUID strings when writing to the related field").addToggle((toggle) => toggle.setValue(this.plugin.settings.useRichRelatedFormat).onChange(async (value) => {
       this.plugin.settings.useRichRelatedFormat = value;
       await this.plugin.saveSettings();
     }));
-    containerEl.createEl("h3", { text: "Scoring Weights" });
-    containerEl.createEl("p", { text: "Weights should sum to 1.0", cls: "setting-item-description" });
+    new import_obsidian.Setting(content).setName("Max tokenization length").setDesc("Maximum characters to process per note. Very long notes are truncated during indexing.").addSlider((slider) => slider.setLimits(1e4, 1e5, 5e3).setValue(this.plugin.settings.maxTokenizationLength).setDynamicTooltip().onChange(async (value) => {
+      this.plugin.settings.maxTokenizationLength = value;
+      await this.plugin.saveSettings();
+    }));
+  }
+  // ==================== Section 4: Scoring ====================
+  renderScoringSection(containerEl) {
+    const content = this.createCollapsibleSection(containerEl, "Scoring");
+    const descRow = content.createEl("div", { cls: "sr-scoring-desc" });
+    descRow.createEl("span", {
+      text: "Adjust how each scoring signal contributes to the final similarity score. "
+    });
+    this.weightSumEl = descRow.createEl("span", { cls: "sr-weight-sum" });
+    this.updateWeightSum();
     const weightKeys = [
-      { key: "bm25", name: "BM25 weight" },
-      { key: "jaccard", name: "Jaccard (tag) weight" },
-      { key: "termOverlap", name: "Term overlap weight" },
-      { key: "graphProximity", name: "Graph proximity weight" }
+      { key: "bm25", name: "BM25 weight", desc: "Text relevance based on term frequency and document length" },
+      { key: "jaccard", name: "Jaccard (tag) weight", desc: "Similarity based on shared tags between notes" },
+      { key: "termOverlap", name: "Term overlap weight", desc: "Shared vocabulary between documents (ignores frequency)" },
+      { key: "graphProximity", name: "Graph proximity weight", desc: "Closeness in the relation graph (related: field connections)" }
     ];
-    for (const { key, name } of weightKeys) {
-      new import_obsidian.Setting(containerEl).setName(name).addSlider((slider) => slider.setLimits(0, 1, 0.05).setValue(this.plugin.settings.scoringWeights[key]).setDynamicTooltip().onChange(async (value) => {
+    for (const { key, name, desc } of weightKeys) {
+      new import_obsidian.Setting(content).setName(name).setDesc(desc).addSlider((slider) => slider.setLimits(0, 1, 0.05).setValue(this.plugin.settings.scoringWeights[key]).setDynamicTooltip().onChange(async (value) => {
         this.plugin.settings.scoringWeights[key] = value;
+        this.updateWeightSum();
         await this.plugin.saveSettings();
       }));
     }
-    new import_obsidian.Setting(containerEl).setName("Minimum similarity threshold").setDesc("Results below this score will be filtered out").addSlider((slider) => slider.setLimits(0, 1, 0.05).setValue(this.plugin.settings.minSimilarityThreshold).setDynamicTooltip().onChange(async (value) => {
+    new import_obsidian.Setting(content).setName("Minimum similarity threshold").setDesc("Results below this combined score will be filtered out").addSlider((slider) => slider.setLimits(0, 1, 0.05).setValue(this.plugin.settings.minSimilarityThreshold).setDynamicTooltip().onChange(async (value) => {
       this.plugin.settings.minSimilarityThreshold = value;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian.Setting(containerEl).setName("Max related notes").setDesc("Maximum number of related notes to display").addSlider((slider) => slider.setLimits(5, 50, 5).setValue(this.plugin.settings.maxRelatedNotes).setDynamicTooltip().onChange(async (value) => {
+    new import_obsidian.Setting(content).setName("Max related notes").setDesc("Maximum number of related notes to display").addSlider((slider) => slider.setLimits(5, 50, 5).setValue(this.plugin.settings.maxRelatedNotes).setDynamicTooltip().onChange(async (value) => {
       this.plugin.settings.maxRelatedNotes = value;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian.Setting(containerEl).setName("N-gram size").setDesc("Character n-gram size for fuzzy matching (2-5)").addSlider((slider) => slider.setLimits(2, 5, 1).setValue(this.plugin.settings.ngramSize).setDynamicTooltip().onChange(async (value) => {
+    new import_obsidian.Setting(content).setName("N-gram size").setDesc("Character n-gram size for fuzzy matching (2-5)").addSlider((slider) => slider.setLimits(2, 5, 1).setValue(this.plugin.settings.ngramSize).setDynamicTooltip().onChange(async (value) => {
       this.plugin.settings.ngramSize = value;
       await this.plugin.saveSettings();
     }));
-    containerEl.createEl("h3", { text: "Performance" });
-    new import_obsidian.Setting(containerEl).setName("Enable n-gram index").setDesc("Builds a character n-gram index for fuzzy matching. Disable to save memory on mobile.").addToggle((toggle) => toggle.setValue(this.plugin.settings.enableNgramIndex).onChange(async (value) => {
+  }
+  updateWeightSum() {
+    if (!this.weightSumEl) return;
+    const w = this.plugin.settings.scoringWeights;
+    const sum = w.bm25 + w.jaccard + w.termOverlap + w.graphProximity;
+    const sumText = `Sum: ${sum.toFixed(2)}`;
+    this.weightSumEl.setText(sumText);
+    this.weightSumEl.removeClass("is-balanced", "is-close", "is-off");
+    if (Math.abs(sum - 1) < 1e-3) {
+      this.weightSumEl.addClass("is-balanced");
+    } else if (Math.abs(sum - 1) < 0.1) {
+      this.weightSumEl.addClass("is-close");
+    } else {
+      this.weightSumEl.addClass("is-off");
+    }
+  }
+  // ==================== Section 5: Performance ====================
+  renderPerformanceSection(containerEl) {
+    const content = this.createCollapsibleSection(containerEl, "Performance & Memory");
+    content.createEl("p", {
+      cls: "sr-section-desc",
+      text: "These settings control memory usage and UI responsiveness. Disabling optional indexes saves memory on mobile devices."
+    });
+    new import_obsidian.Setting(content).setName("Enable n-gram index").setDesc("Character n-gram index for fuzzy matching. Not used in scoring \u2014 disable to save 15-25 MB of memory.").addToggle((toggle) => toggle.setValue(this.plugin.settings.enableNgramIndex).onChange(async (value) => {
       this.plugin.settings.enableNgramIndex = value;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian.Setting(containerEl).setName("Store term positions").setDesc("Store character positions for each term occurrence. Disable to save memory on mobile. Not needed for scoring.").addToggle((toggle) => toggle.setValue(this.plugin.settings.storePositions).onChange(async (value) => {
+    new import_obsidian.Setting(content).setName("Store term positions").setDesc("Store character positions for each term occurrence. Not needed for scoring \u2014 disable to save 50-60% of term index memory.").addToggle((toggle) => toggle.setValue(this.plugin.settings.storePositions).onChange(async (value) => {
       this.plugin.settings.storePositions = value;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian.Setting(containerEl).setName("Index batch size").setDesc("Files processed per batch during reindex. Lower values reduce UI freezing on mobile (10-100).").addSlider((slider) => slider.setLimits(10, 100, 10).setValue(this.plugin.settings.indexBatchSize).setDynamicTooltip().onChange(async (value) => {
+    new import_obsidian.Setting(content).setName("Index batch size").setDesc("Files processed per batch during reindex. Lower values reduce UI freezing on mobile (10-100).").addSlider((slider) => slider.setLimits(10, 100, 10).setValue(this.plugin.settings.indexBatchSize).setDynamicTooltip().onChange(async (value) => {
       this.plugin.settings.indexBatchSize = value;
       await this.plugin.saveSettings();
     }));
+  }
+  // ==================== Helpers ====================
+  createCollapsibleSection(containerEl, title, defaultOpen = false) {
+    const details = containerEl.createEl("details", { cls: "sr-settings-section" });
+    if (defaultOpen) details.setAttribute("open", "");
+    details.createEl("summary", { text: title });
+    return details.createEl("div", { cls: "sr-settings-section-content" });
+  }
+  formatRelativeTime(timestamp) {
+    const diff = Date.now() - timestamp;
+    const seconds = Math.floor(diff / 1e3);
+    if (seconds < 60) return "just now";
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
   }
 };
 
@@ -2201,6 +2686,12 @@ var SmartRelationsPlugin = class extends import_obsidian7.Plugin {
     }
     this.indexManager.destroy();
     console.log("Smart Relations: unloading plugin");
+  }
+  getIndexManager() {
+    return this.indexManager;
+  }
+  getScorer() {
+    return this.scorer;
   }
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());

@@ -52,9 +52,10 @@ export class IndexManager {
   private documentTermSets: Map<string, Set<string>> = new Map();
 
   // Debounce
-  private pendingChanges: Map<string, { file: TFile; type: 'create' | 'modify' | 'delete' }> = new Map();
+  private pendingChanges: Map<string, { file: TFile; type: 'create' | 'modify' | 'delete'; attempts: number }> = new Map();
   private debounceTimer: number | null = null;
   private readonly DEBOUNCE_MS = 500;
+  private readonly MAX_METADATA_RETRIES = 3;
 
   // State
   private isIndexing = false;
@@ -191,7 +192,7 @@ export class IndexManager {
       return file.path.startsWith(normalized);
     })) return;
 
-    this.pendingChanges.set(file.path, { file, type: changeType });
+    this.pendingChanges.set(file.path, { file, type: changeType, attempts: 0 });
     this.scheduleFlush();
   }
 
@@ -203,17 +204,21 @@ export class IndexManager {
     if (file.extension !== 'md') return;
 
     // Queue as a modify to avoid race conditions with concurrent flushes
-    this.pendingChanges.set(file.path, { file, type: 'modify' });
+    this.pendingChanges.set(file.path, { file, type: 'modify', attempts: 0 });
 
-    // Also update the path in UUID index immediately for consistency
-    // (safe since we only mutate a string property, not structural changes)
+    // Also update the path in UUID index and reverse map immediately for
+    // consistency (safe since we only mutate a string property, not structural
+    // changes). Without this, pathToUuid keeps a dangling old-path entry.
     if (!this.isIndexing) {
-      for (const [, entry] of Object.entries(this.uuidIndex)) {
-        if (entry.path === oldPath) {
+      const uuid = this.pathToUuid.get(oldPath);
+      if (uuid) {
+        const entry = this.uuidIndex[uuid];
+        if (entry) {
           entry.path = file.path;
           entry.title = file.basename;
-          break;
         }
+        this.pathToUuid.delete(oldPath);
+        this.pathToUuid.set(file.path, uuid);
       }
     }
 
@@ -243,14 +248,14 @@ export class IndexManager {
 
     this.isIndexing = true;
     try {
-      for (const [path, { file, type }] of changes) {
-        switch (type) {
+      for (const [path, change] of changes) {
+        switch (change.type) {
           case 'delete':
             this.handleDelete(path);
             break;
           case 'create':
           case 'modify':
-            await this.handleCreateOrModify(file);
+            await this.handleCreateOrModify(change.file, change.attempts);
             break;
         }
       }
@@ -311,9 +316,19 @@ export class IndexManager {
     delete this.documentStats[deletedUuid];
   }
 
-  private async handleCreateOrModify(file: TFile): Promise<void> {
+  private async handleCreateOrModify(file: TFile, attempts = 0): Promise<void> {
     let cache = this.app.metadataCache.getFileCache(file);
-    if (!cache) return;
+    if (!cache) {
+      // Obsidian hasn't parsed this file's metadata yet. Requeue for another
+      // debounce cycle, bounded by MAX_METADATA_RETRIES to avoid infinite loops.
+      if (attempts < this.MAX_METADATA_RETRIES) {
+        this.pendingChanges.set(file.path, { file, type: 'modify', attempts: attempts + 1 });
+        this.scheduleFlush();
+      } else {
+        console.warn(`Smart Relations: Gave up waiting for metadata cache for "${file.path}" after ${attempts} attempts`);
+      }
+      return;
+    }
 
     // Auto-add UUID if enabled and this file lacks one
     if (this.settings.autoAddUuids && !this.hasValidUuid(cache) && !this.isExcluded(file)) {
@@ -343,7 +358,13 @@ export class IndexManager {
     const { uuid, entry } = result;
 
     // Remove old entries if this UUID was already indexed
-    if (this.uuidIndex[uuid]) {
+    const previousEntry = this.uuidIndex[uuid];
+    if (previousEntry) {
+      // If the path changed since the last index (rename flow), drop the stale
+      // reverse-map entry so pathToUuid doesn't accumulate dangling keys.
+      if (previousEntry.path !== entry.path) {
+        this.pathToUuid.delete(previousEntry.path);
+      }
       this.termIndexer.removeDocument(this.termIndex, uuid);
       this.ngramIndexer.removeDocument(this.ngramIndex, uuid);
       this.graphBuilder.removeNode(this.relationGraph, uuid);

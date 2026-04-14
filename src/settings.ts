@@ -41,7 +41,7 @@ export const DEFAULT_SETTINGS: SmartRelationsSettings = {
   autoAddUuids: false,
   maxTokenizationLength: 50000,
   enableNgramIndex: true,
-  storePositions: true,
+  storePositions: false,
   indexBatchSize: 50,
   claudeMdFolder: '',
 };

@@ -260,7 +260,7 @@ var DEFAULT_SETTINGS = {
   autoAddUuids: false,
   maxTokenizationLength: 5e4,
   enableNgramIndex: true,
-  storePositions: true,
+  storePositions: false,
   indexBatchSize: 50,
   claudeMdFolder: ""
 };
@@ -1764,6 +1764,7 @@ var IndexManager = class {
     this.pendingChanges = /* @__PURE__ */ new Map();
     this.debounceTimer = null;
     this.DEBOUNCE_MS = 500;
+    this.MAX_METADATA_RETRIES = 3;
     // State
     this.isIndexing = false;
     this.lastIndexTime = null;
@@ -1863,7 +1864,7 @@ var IndexManager = class {
       const normalized = f.endsWith("/") ? f : f + "/";
       return file.path.startsWith(normalized);
     })) return;
-    this.pendingChanges.set(file.path, { file, type: changeType });
+    this.pendingChanges.set(file.path, { file, type: changeType, attempts: 0 });
     this.scheduleFlush();
   }
   /**
@@ -1872,14 +1873,17 @@ var IndexManager = class {
   handleFileRename(file, oldPath) {
     if (!this.indexLoaded) return;
     if (file.extension !== "md") return;
-    this.pendingChanges.set(file.path, { file, type: "modify" });
+    this.pendingChanges.set(file.path, { file, type: "modify", attempts: 0 });
     if (!this.isIndexing) {
-      for (const [, entry] of Object.entries(this.uuidIndex)) {
-        if (entry.path === oldPath) {
+      const uuid = this.pathToUuid.get(oldPath);
+      if (uuid) {
+        const entry = this.uuidIndex[uuid];
+        if (entry) {
           entry.path = file.path;
           entry.title = file.basename;
-          break;
         }
+        this.pathToUuid.delete(oldPath);
+        this.pathToUuid.set(file.path, uuid);
       }
     }
     this.scheduleFlush();
@@ -1903,14 +1907,14 @@ var IndexManager = class {
     this.debounceTimer = null;
     this.isIndexing = true;
     try {
-      for (const [path, { file, type }] of changes) {
-        switch (type) {
+      for (const [path, change] of changes) {
+        switch (change.type) {
           case "delete":
             this.handleDelete(path);
             break;
           case "create":
           case "modify":
-            await this.handleCreateOrModify(file);
+            await this.handleCreateOrModify(change.file, change.attempts);
             break;
         }
       }
@@ -1962,10 +1966,18 @@ var IndexManager = class {
     this.graphBuilder.removeNode(this.relationGraph, deletedUuid);
     delete this.documentStats[deletedUuid];
   }
-  async handleCreateOrModify(file) {
+  async handleCreateOrModify(file, attempts = 0) {
     var _a;
     let cache = this.app.metadataCache.getFileCache(file);
-    if (!cache) return;
+    if (!cache) {
+      if (attempts < this.MAX_METADATA_RETRIES) {
+        this.pendingChanges.set(file.path, { file, type: "modify", attempts: attempts + 1 });
+        this.scheduleFlush();
+      } else {
+        console.warn(`Smart Relations: Gave up waiting for metadata cache for "${file.path}" after ${attempts} attempts`);
+      }
+      return;
+    }
     if (this.settings.autoAddUuids && !this.hasValidUuid(cache) && !this.isExcluded(file)) {
       const added = await this.writeUuidToFile(file);
       if (added) {
@@ -1988,7 +2000,11 @@ var IndexManager = class {
       return;
     }
     const { uuid, entry } = result;
-    if (this.uuidIndex[uuid]) {
+    const previousEntry = this.uuidIndex[uuid];
+    if (previousEntry) {
+      if (previousEntry.path !== entry.path) {
+        this.pathToUuid.delete(previousEntry.path);
+      }
       this.termIndexer.removeDocument(this.termIndex, uuid);
       this.ngramIndexer.removeDocument(this.ngramIndex, uuid);
       this.graphBuilder.removeNode(this.relationGraph, uuid);

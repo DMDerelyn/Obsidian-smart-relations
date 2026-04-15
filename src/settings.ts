@@ -1,4 +1,4 @@
-import { App, Notice, PluginSettingTab, Setting, Plugin, TFile } from 'obsidian';
+import { App, Notice, PluginSettingTab, Setting, Plugin, TFile, TFolder, normalizePath } from 'obsidian';
 import { IndexManager } from './indexer/IndexManager';
 import { CombinedScorer } from './scoring/CombinedScorer';
 import { ScoredResult } from './scoring/types';
@@ -18,6 +18,7 @@ export interface SmartRelationsSettings {
   maxRelatedNotes: number;
   ngramSize: number;
   useRichRelatedFormat: boolean;
+  autoAddUuids: boolean;
   maxTokenizationLength: number;
   enableNgramIndex: boolean;
   storePositions: boolean;
@@ -37,9 +38,10 @@ export const DEFAULT_SETTINGS: SmartRelationsSettings = {
   maxRelatedNotes: 20,
   ngramSize: 3,
   useRichRelatedFormat: true,
+  autoAddUuids: false,
   maxTokenizationLength: 50000,
   enableNgramIndex: true,
-  storePositions: true,
+  storePositions: false,
   indexBatchSize: 50,
   claudeMdFolder: '',
 };
@@ -78,25 +80,21 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
   private renderAboutAndStatus(containerEl: HTMLElement): void {
     const about = containerEl.createEl('div', { cls: 'sr-settings-about' });
 
-    // Header with version
-    const header = about.createEl('div', { cls: 'sr-settings-header' });
-    header.createEl('h2', { text: 'Smart Relations' });
-    header.createEl('span', {
-      cls: 'sr-version-badge',
-      text: `v${this.plugin.manifest.version}`,
-    });
-
     about.createEl('p', {
       cls: 'sr-about-desc',
-      text: 'Build local vectorization indexes for RAG-style retrieval and relation discovery. Entirely offline \u2014 no API calls, no cloud services. Scores notes using BM25, tag similarity, term overlap, and relation graph proximity.',
+      text: `Build local vectorization indexes for RAG-style retrieval and relation discovery. Entirely offline \u2014 no API calls, no cloud services. Scores notes using BM25, tag similarity, term overlap, and relation graph proximity. (v${this.plugin.manifest.version})`,
     });
 
     const links = about.createEl('div', { cls: 'sr-links' });
-    const ghLink = links.createEl('a', { text: 'GitHub', href: '#' });
-    ghLink.setAttribute('href', 'https://github.com/DMDerelyn/Obsidian-smart-relations');
+    links.createEl('a', {
+      text: 'GitHub',
+      href: 'https://github.com/DMDerelyn/Obsidian-smart-relations',
+    });
     links.createEl('span', { text: ' \u00B7 ' });
-    const docsLink = links.createEl('a', { text: 'Documentation', href: '#' });
-    docsLink.setAttribute('href', 'https://github.com/DMDerelyn/Obsidian-smart-relations#readme');
+    links.createEl('a', {
+      text: 'Documentation',
+      href: 'https://github.com/DMDerelyn/Obsidian-smart-relations#readme',
+    });
 
     // Status panel
     this.renderStatusPanel(about);
@@ -147,7 +145,7 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
     // Reindex button
     const actions = panel.createEl('div', { cls: 'sr-status-actions' });
     const reindexBtn = actions.createEl('button', { cls: 'mod-cta', text: 'Reindex vault' });
-    reindexBtn.addEventListener('click', () => {
+    this.plugin.registerDomEvent(reindexBtn, 'click', () => {
       new Notice('Smart Relations: Reindexing vault...');
       void im.rebuildAll((msg) => {
         reindexBtn.setText(msg);
@@ -241,19 +239,19 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
   // ==================== Section 2: Claude Code Integration ====================
 
   private renderClaudeIntegration(containerEl: HTMLElement): void {
-    const content = this.createCollapsibleSection(containerEl, 'Claude Code Integration');
+    const content = this.createCollapsibleSection(containerEl, 'Optional: Claude Code integration');
 
     const desc = content.createEl('p', { cls: 'sr-section-desc' });
     desc.setText(
-      'CLAUDE.md is a special file that tells Claude Code how to use your vault\'s indexes for RAG-style queries. ' +
-      'When placed in your vault, Claude Code automatically discovers it and can efficiently search your notes ' +
-      'using the pre-built indexes instead of scanning every file.'
+      'Optional convenience for users of Claude Code (the CLI/IDE tool). Writes a CLAUDE.md file into a vault folder of your choice. ' +
+      'The file tells Claude Code how to use Smart Relations\' indexes for RAG-style queries instead of scanning every note. ' +
+      'Disabled by default \u2014 nothing is written unless you set a folder and click Deploy.'
     );
 
     // Folder path setting
     new Setting(content)
       .setName('Deploy CLAUDE.md to folder')
-      .setDesc('Choose a vault folder where CLAUDE.md will be placed. Leave empty to skip deployment.')
+      .setDesc('Vault folder where CLAUDE.md will be placed. Leave empty to skip deployment.')
       .addText(text => text
         .setPlaceholder('e.g., Library/Knowledge')
         .setValue(this.plugin.settings.claudeMdFolder)
@@ -271,19 +269,31 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
     const actions = content.createEl('div', { cls: 'sr-deploy-actions' });
 
     const deployBtn = actions.createEl('button', { cls: 'mod-cta', text: 'Deploy / Update' });
-    deployBtn.addEventListener('click', async () => {
+    this.plugin.registerDomEvent(deployBtn, 'click', async () => {
       const folder = this.plugin.settings.claudeMdFolder.trim();
       if (!folder) {
         new Notice('Set a folder path first');
         return;
       }
       try {
-        const folderExists = await this.app.vault.adapter.exists(folder);
-        if (!folderExists) {
-          await this.app.vault.adapter.mkdir(folder);
+        const normalizedFolder = normalizePath(folder);
+        const folderAbstract = this.app.vault.getAbstractFileByPath(normalizedFolder);
+        if (!folderAbstract) {
+          await this.app.vault.createFolder(normalizedFolder);
+        } else if (!(folderAbstract instanceof TFolder)) {
+          new Notice(`"${normalizedFolder}" exists but is not a folder`);
+          return;
         }
-        const targetPath = `${folder}/CLAUDE.md`;
-        await this.app.vault.adapter.write(targetPath, CLAUDE_MD_CONTENT);
+        const targetPath = normalizePath(`${normalizedFolder}/CLAUDE.md`);
+        const existing = this.app.vault.getAbstractFileByPath(targetPath);
+        if (existing instanceof TFile) {
+          await this.app.vault.modify(existing, CLAUDE_MD_CONTENT);
+        } else if (existing) {
+          new Notice(`"${targetPath}" exists but is not a file`);
+          return;
+        } else {
+          await this.app.vault.create(targetPath, CLAUDE_MD_CONTENT);
+        }
         new Notice(`CLAUDE.md deployed to ${targetPath}`);
         this.updateDeployStatus(statusEl);
       } catch (e) {
@@ -293,15 +303,15 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
     });
 
     const removeBtn = actions.createEl('button', { text: 'Remove' });
-    removeBtn.addEventListener('click', async () => {
+    this.plugin.registerDomEvent(removeBtn, 'click', async () => {
       const folder = this.plugin.settings.claudeMdFolder.trim();
       if (!folder) return;
-      const targetPath = `${folder}/CLAUDE.md`;
+      const targetPath = normalizePath(`${folder}/CLAUDE.md`);
       try {
-        const exists = await this.app.vault.adapter.exists(targetPath);
-        if (exists) {
-          await this.app.vault.adapter.remove(targetPath);
-          new Notice('CLAUDE.md removed');
+        const existing = this.app.vault.getAbstractFileByPath(targetPath);
+        if (existing instanceof TFile) {
+          await this.app.vault.trash(existing, true);
+          new Notice('CLAUDE.md moved to system trash');
         } else {
           new Notice('CLAUDE.md not found at that location');
         }
@@ -319,18 +329,16 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
     if (!folder) {
       statusEl.setText('Not deployed');
       statusEl.removeClass('is-deployed');
+      return;
+    }
+    const targetPath = normalizePath(`${folder}/CLAUDE.md`);
+    const existing = this.app.vault.getAbstractFileByPath(targetPath);
+    if (existing instanceof TFile) {
+      statusEl.addClass('is-deployed');
+      statusEl.setText(`Deployed to ${targetPath}`);
     } else {
-      void this.app.vault.adapter.exists(`${folder}/CLAUDE.md`).then(exists => {
-        if (!statusEl.isConnected) return;
-        statusEl.empty();
-        if (exists) {
-          statusEl.addClass('is-deployed');
-          statusEl.setText(`Deployed to ${folder}/CLAUDE.md`);
-        } else {
-          statusEl.removeClass('is-deployed');
-          statusEl.setText(`Not yet deployed (folder: ${folder})`);
-        }
-      });
+      statusEl.removeClass('is-deployed');
+      statusEl.setText(`Not yet deployed (folder: ${folder})`);
     }
   }
 
@@ -350,6 +358,19 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
             .split(',')
             .map(s => s.trim())
             .filter(s => s.length > 0);
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(content)
+      .setName('Auto-add UUIDs to notes')
+      .setDesc(
+        'When enabled, Smart Relations will automatically add a `uuid` field to the frontmatter of any note that lacks one. ' +
+        'Without a UUID, notes are excluded from indexing. This writes to your files \u2014 disabled by default.'
+      )
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.autoAddUuids)
+        .onChange(async (value) => {
+          this.plugin.settings.autoAddUuids = value;
           await this.plugin.saveSettings();
         }));
 

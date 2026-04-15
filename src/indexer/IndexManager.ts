@@ -1,7 +1,8 @@
-import { App, TFile } from 'obsidian';
+import { App, Notice, TFile } from 'obsidian';
 import { SmartRelationsSettings } from '../settings';
 import { IndexCache } from '../utils/cache';
 import { parseFrontmatter } from '../utils/frontmatter';
+import { generateUuid, isValidUuid } from '../utils/uuid';
 import { UuidIndexer } from './UuidIndexer';
 import { TermIndexer } from './TermIndexer';
 import { TagIndexer } from './TagIndexer';
@@ -51,9 +52,10 @@ export class IndexManager {
   private documentTermSets: Map<string, Set<string>> = new Map();
 
   // Debounce
-  private pendingChanges: Map<string, { file: TFile; type: 'create' | 'modify' | 'delete' }> = new Map();
+  private pendingChanges: Map<string, { file: TFile; type: 'create' | 'modify' | 'delete'; attempts: number }> = new Map();
   private debounceTimer: number | null = null;
   private readonly DEBOUNCE_MS = 500;
+  private readonly MAX_METADATA_RETRIES = 3;
 
   // State
   private isIndexing = false;
@@ -96,6 +98,15 @@ export class IndexManager {
 
     try {
       onProgress?.('Starting full reindex...', 0);
+
+      // Step 0: Auto-add UUIDs to notes that lack them (if enabled)
+      if (this.settings.autoAddUuids) {
+        onProgress?.('Adding UUIDs to notes without them...', 0.05);
+        const added = await this.autoAddUuidsToVault();
+        if (added > 0) {
+          new Notice(`Smart Relations: Added UUIDs to ${added} note${added === 1 ? '' : 's'}`);
+        }
+      }
 
       // Step 1: Build UUID index
       onProgress?.('Building UUID index...', 0.1);
@@ -157,7 +168,6 @@ export class IndexManager {
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       onProgress?.(`Indexing complete: ${totalFiles} notes in ${elapsed}s`, 1);
-      console.log(`Smart Relations: Full reindex completed — ${totalFiles} notes, ${Object.keys(termIndex).length} terms in ${elapsed}s`);
 
     } catch (e) {
       console.error('Smart Relations: Reindex failed:', e);
@@ -182,7 +192,7 @@ export class IndexManager {
       return file.path.startsWith(normalized);
     })) return;
 
-    this.pendingChanges.set(file.path, { file, type: changeType });
+    this.pendingChanges.set(file.path, { file, type: changeType, attempts: 0 });
     this.scheduleFlush();
   }
 
@@ -194,17 +204,21 @@ export class IndexManager {
     if (file.extension !== 'md') return;
 
     // Queue as a modify to avoid race conditions with concurrent flushes
-    this.pendingChanges.set(file.path, { file, type: 'modify' });
+    this.pendingChanges.set(file.path, { file, type: 'modify', attempts: 0 });
 
-    // Also update the path in UUID index immediately for consistency
-    // (safe since we only mutate a string property, not structural changes)
+    // Also update the path in UUID index and reverse map immediately for
+    // consistency (safe since we only mutate a string property, not structural
+    // changes). Without this, pathToUuid keeps a dangling old-path entry.
     if (!this.isIndexing) {
-      for (const [, entry] of Object.entries(this.uuidIndex)) {
-        if (entry.path === oldPath) {
+      const uuid = this.pathToUuid.get(oldPath);
+      if (uuid) {
+        const entry = this.uuidIndex[uuid];
+        if (entry) {
           entry.path = file.path;
           entry.title = file.basename;
-          break;
         }
+        this.pathToUuid.delete(oldPath);
+        this.pathToUuid.set(file.path, uuid);
       }
     }
 
@@ -234,14 +248,14 @@ export class IndexManager {
 
     this.isIndexing = true;
     try {
-      for (const [path, { file, type }] of changes) {
-        switch (type) {
+      for (const [path, change] of changes) {
+        switch (change.type) {
           case 'delete':
             this.handleDelete(path);
             break;
           case 'create':
           case 'modify':
-            await this.handleCreateOrModify(file);
+            await this.handleCreateOrModify(change.file, change.attempts);
             break;
         }
       }
@@ -300,13 +314,29 @@ export class IndexManager {
     this.ngramIndexer.removeDocument(this.ngramIndex, deletedUuid);
     this.graphBuilder.removeNode(this.relationGraph, deletedUuid);
     delete this.documentStats[deletedUuid];
-
-    console.log(`Smart Relations: Removed deleted file from index (UUID: ${deletedUuid})`);
   }
 
-  private async handleCreateOrModify(file: TFile): Promise<void> {
-    const cache = this.app.metadataCache.getFileCache(file);
-    if (!cache) return;
+  private async handleCreateOrModify(file: TFile, attempts = 0): Promise<void> {
+    let cache = this.app.metadataCache.getFileCache(file);
+    if (!cache) {
+      // Obsidian hasn't parsed this file's metadata yet. Requeue for another
+      // debounce cycle, bounded by MAX_METADATA_RETRIES to avoid infinite loops.
+      if (attempts < this.MAX_METADATA_RETRIES) {
+        this.pendingChanges.set(file.path, { file, type: 'modify', attempts: attempts + 1 });
+        this.scheduleFlush();
+      } else {
+        console.warn(`Smart Relations: Gave up waiting for metadata cache for "${file.path}" after ${attempts} attempts`);
+      }
+      return;
+    }
+
+    // Auto-add UUID if enabled and this file lacks one
+    if (this.settings.autoAddUuids && !this.hasValidUuid(cache) && !this.isExcluded(file)) {
+      const added = await this.writeUuidToFile(file);
+      if (added) {
+        cache = this.app.metadataCache.getFileCache(file) ?? cache;
+      }
+    }
 
     const result = this.uuidIndexer.indexSingleFile(file, cache);
     if (!result) {
@@ -328,7 +358,13 @@ export class IndexManager {
     const { uuid, entry } = result;
 
     // Remove old entries if this UUID was already indexed
-    if (this.uuidIndex[uuid]) {
+    const previousEntry = this.uuidIndex[uuid];
+    if (previousEntry) {
+      // If the path changed since the last index (rename flow), drop the stale
+      // reverse-map entry so pathToUuid doesn't accumulate dangling keys.
+      if (previousEntry.path !== entry.path) {
+        this.pathToUuid.delete(previousEntry.path);
+      }
       this.termIndexer.removeDocument(this.termIndex, uuid);
       this.ngramIndexer.removeDocument(this.ngramIndex, uuid);
       this.graphBuilder.removeNode(this.relationGraph, uuid);
@@ -381,8 +417,6 @@ export class IndexManager {
         }
       }
     }
-
-    console.log(`Smart Relations: Updated index for "${file.path}" (UUID: ${uuid})`);
   }
 
   // ==================== Persistence ====================
@@ -411,7 +445,6 @@ export class IndexManager {
         this.documentTermSetsDirty = true;
         this.indexLoaded = true;
         this.lastIndexTime = this.corpusStats.lastIndexedAt ?? null;
-        console.log(`Smart Relations: Loaded indexes from disk (${Object.keys(this.uuidIndex).length} notes)`);
         return true;
       }
 
@@ -512,6 +545,68 @@ export class IndexManager {
         termSet.add(term);
       }
     }
+  }
+
+  // ==================== Auto-UUID helpers ====================
+
+  /**
+   * Check if a file's metadata cache already has a valid UUID in frontmatter.
+   */
+  private hasValidUuid(cache: { frontmatter?: Record<string, unknown> }): boolean {
+    const fm = cache.frontmatter;
+    if (!fm) return false;
+    const uuid = fm.uuid;
+    return typeof uuid === 'string' && isValidUuid(uuid);
+  }
+
+  /**
+   * Check if a file path is in an excluded folder.
+   */
+  private isExcluded(file: TFile): boolean {
+    return this.settings.excludedFolders.some(folder => {
+      const normalized = folder.endsWith('/') ? folder : folder + '/';
+      return file.path.startsWith(normalized);
+    });
+  }
+
+  /**
+   * Write a generated UUID to the file's frontmatter.
+   * Idempotent: does nothing if a valid UUID already exists.
+   * Returns true if a UUID was written.
+   */
+  private async writeUuidToFile(file: TFile): Promise<boolean> {
+    let wrote = false;
+    try {
+      await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+        const existing = fm.uuid;
+        if (typeof existing === 'string' && isValidUuid(existing)) {
+          return;
+        }
+        fm.uuid = generateUuid();
+        wrote = true;
+      });
+    } catch (e) {
+      console.warn(`Smart Relations: Failed to add UUID to ${file.path}:`, e);
+    }
+    return wrote;
+  }
+
+  /**
+   * Scan all markdown files and add UUIDs to any that lack one.
+   * Respects excludedFolders. Returns the number of UUIDs added.
+   */
+  private async autoAddUuidsToVault(): Promise<number> {
+    let count = 0;
+    const files = this.app.vault.getMarkdownFiles();
+    for (const file of files) {
+      if (this.isExcluded(file)) continue;
+      const cache = this.app.metadataCache.getFileCache(file);
+      // Files without metadata cache or with a valid UUID are skipped
+      if (cache && this.hasValidUuid(cache)) continue;
+      const added = await this.writeUuidToFile(file);
+      if (added) count++;
+    }
+    return count;
   }
 
   /**

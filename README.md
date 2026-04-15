@@ -27,6 +27,7 @@ These four scores are normalized to a 0–1 range and combined using configurabl
 ## Key Features
 
 - **Fully local** — No API calls, no cloud services, no data leaves your machine
+- **UUID-based identity** — Notes are tracked by a `uuid` frontmatter field so renaming a file never breaks a link. Smart Relations can auto-add UUIDs to every note if you opt in, or you can add them one at a time with the "Add UUID to current note" command.
 - **Incremental indexing** — Only re-indexes notes that changed, with a 500ms debounce window for batching rapid edits
 - **File lifecycle handling** — Properly handles note creation, modification, deletion, and renaming without corrupting indexes
 - **Persistent indexes** — Indexes are saved to disk and loaded on plugin startup, so you don't re-index on every restart
@@ -38,7 +39,14 @@ These four scores are normalized to a 0–1 range and combined using configurabl
 
 ### Note Format
 
-Every note in your vault must have a `uuid` field in its YAML frontmatter. This is the canonical identifier used for all cross-referencing:
+Every indexed note must have a `uuid` field in its YAML frontmatter. This is the canonical identifier used for all cross-referencing — it lets Smart Relations track notes through renames and moves without breaking links. Notes without a UUID are simply skipped during indexing (not deleted, not modified).
+
+**You have two ways to get UUIDs into your notes:**
+
+1. **Enable "Auto-add UUIDs to notes"** in Settings → Smart Relations → Indexing. When enabled, every reindex (and every file create/modify) will add a UUID to any note that lacks one. This writes to your files, which is why it's **disabled by default**.
+2. **Run the command "Smart Relations: Add UUID to current note"** from the command palette. This adds a UUID to the active note only. Use this if you want manual control.
+
+Existing notes are never overwritten — if a valid UUID is already present, Smart Relations leaves it alone. The generated UUIDs are standard v4 format:
 
 ```yaml
 ---
@@ -146,6 +154,8 @@ This watches for file changes and rebuilds automatically.
 
 When the plugin loads for the first time (or when no saved indexes exist), it automatically performs a full vault reindex. This reads every markdown file, extracts frontmatter and content, and builds all six indexes. For a vault with ~1,000 notes, this takes roughly 5–10 seconds.
 
+**If your notes don't have UUIDs yet**, the first reindex will report zero indexed notes. Either enable "Auto-add UUIDs to notes" in settings and reindex (adds UUIDs to every note in one pass) or run "Smart Relations: Add UUID to current note" on each note manually.
+
 ### Related Notes Panel
 
 Open the related notes panel via:
@@ -197,6 +207,7 @@ Open **Settings > Smart Relations** to configure:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | **Excluded folders** | *(empty)* | Comma-separated folder paths to skip during indexing (e.g., `templates, archive`) |
+| **Auto-add UUIDs to notes** | Off | When on, Smart Relations writes a `uuid` field into the frontmatter of any note that lacks one during indexing. Disabled by default because it modifies your files. |
 | **Rich related format** | On | Use `{uuid, rel, auto}` objects instead of plain UUID strings when writing to `related:` |
 | **BM25 weight** | 0.40 | Weight of BM25 text relevance in the combined score |
 | **Jaccard (tag) weight** | 0.20 | Weight of tag overlap similarity |

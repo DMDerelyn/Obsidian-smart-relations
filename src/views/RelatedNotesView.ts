@@ -70,7 +70,7 @@ export class RelatedNotesView extends ItemView {
     header.createEl('h4', { text: 'Related Notes' });
     const refreshBtn = header.createEl('button', { cls: 'sr-refresh-btn', attr: { 'aria-label': 'Refresh' } });
     refreshBtn.setText('\u21BB');
-    refreshBtn.addEventListener('click', () => { void this.updateForActiveFile(); });
+    this.registerDomEvent(refreshBtn, 'click', () => { void this.updateForActiveFile(); });
 
     if (this.results.length === 0) {
       container.createEl('div', { cls: 'sr-empty-state', text: 'No related notes found' });
@@ -89,7 +89,7 @@ export class RelatedNotesView extends ItemView {
         cls: 'sr-result-title',
         text: result.title,
       });
-      titleEl.addEventListener('click', (e) => {
+      this.registerDomEvent(titleEl, 'click', (e) => {
         e.preventDefault();
         void this.app.workspace.openLinkText(result.path, '');
       });

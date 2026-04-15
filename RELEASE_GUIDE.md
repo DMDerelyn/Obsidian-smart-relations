@@ -119,7 +119,7 @@ Or install via [BRAT](https://github.com/TfTHacker/obsidian42-brat) using repo: 
    {
      "id": "smart-relations",
      "name": "Smart Relations",
-     "author": "Smart Relations",
+     "author": "DMDerelyn",
      "description": "Build local vectorization indexes for RAG-style retrieval and relation discovery",
      "repo": "DMDerelyn/Obsidian-smart-relations"
    }

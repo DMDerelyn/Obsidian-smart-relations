@@ -5,6 +5,7 @@ import { IndexCache } from './utils/cache';
 import { CombinedScorer } from './scoring/CombinedScorer';
 import { RelatedNotesView, VIEW_TYPE_RELATED } from './views/RelatedNotesView';
 import { RelationSuggestionModal } from './views/SuggestionModal';
+import { generateUuid, isValidUuid } from './utils/uuid';
 
 export default class SmartRelationsPlugin extends Plugin {
   settings: SmartRelationsSettings = DEFAULT_SETTINGS;
@@ -119,6 +120,14 @@ export default class SmartRelationsPlugin extends Plugin {
       },
     });
 
+    this.addCommand({
+      id: 'add-uuid-to-current-note',
+      name: 'Add UUID to current note',
+      callback: () => {
+        void this.addUuidToCurrentNote();
+      },
+    });
+
     // Settings tab
     this.addSettingTab(new SmartRelationsSettingTab(this.app, this));
 
@@ -132,7 +141,6 @@ export default class SmartRelationsPlugin extends Plugin {
       window.clearTimeout(this.leafChangeTimer);
     }
     this.indexManager.destroy();
-    console.log('Smart Relations: unloading plugin');
   }
 
   getIndexManager(): IndexManager {
@@ -225,6 +233,36 @@ export default class SmartRelationsPlugin extends Plugin {
       if (view instanceof RelatedNotesView) {
         void view.updateForActiveFile();
       }
+    }
+  }
+
+  private async addUuidToCurrentNote(): Promise<void> {
+    const file = this.app.workspace.getActiveFile();
+    if (!file || file.extension !== 'md') {
+      new Notice('No active markdown note');
+      return;
+    }
+    let wrote = false;
+    let existingUuid: string | null = null;
+    try {
+      await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+        const existing = fm.uuid;
+        if (typeof existing === 'string' && isValidUuid(existing)) {
+          existingUuid = existing;
+          return;
+        }
+        fm.uuid = generateUuid();
+        wrote = true;
+      });
+    } catch (e) {
+      new Notice('Failed to add UUID \u2014 see console');
+      console.error('Smart Relations: Failed to add UUID:', e);
+      return;
+    }
+    if (wrote) {
+      new Notice('Smart Relations: UUID added to current note');
+    } else if (existingUuid) {
+      new Notice(`Smart Relations: Note already has a UUID (${existingUuid})`);
     }
   }
 

@@ -49,7 +49,7 @@ export class IndexCache {
   /**
    * Check if an index file exists.
    */
-  async exists(filename: string): Promise<boolean> {
+  exists(filename: string): Promise<boolean> {
     const path = `${this.basePath}/${filename}`;
     return this.plugin.app.vault.adapter.exists(path);
   }

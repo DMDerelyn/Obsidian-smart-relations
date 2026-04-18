@@ -2315,7 +2315,7 @@ var IndexCache = class {
   /**
    * Check if an index file exists.
    */
-  async exists(filename) {
+  exists(filename) {
     const path = `${this.basePath}/${filename}`;
     return this.plugin.app.vault.adapter.exists(path);
   }

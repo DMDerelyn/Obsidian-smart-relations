@@ -40,7 +40,7 @@ export default class SmartRelationsPlugin extends Plugin {
       // Schedule rebuild after layout is ready
       this.app.workspace.onLayoutReady(() => {
         void (async () => {
-          new Notice('Smart Relations: Building index for the first time...');
+          new Notice('Building index for the first time...');
           await this.indexManager.rebuildAll((msg) => {
             this.updateStatusBar(msg);
           });
@@ -188,24 +188,24 @@ export default class SmartRelationsPlugin extends Plugin {
   }
 
   private async reindexVault(): Promise<void> {
-    new Notice('Smart Relations: Reindexing vault...');
+    new Notice('Reindexing vault...');
     await this.indexManager.rebuildAll((msg) => {
       this.updateStatusBar(msg);
     });
     this.updateStatusBarDefault();
     this.refreshRelatedPanel();
-    new Notice('Smart Relations: Reindex complete!');
+    new Notice('Reindex complete');
   }
 
   private async activateRelatedPanel(): Promise<void> {
     const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_RELATED);
     if (leaves.length > 0) {
-      this.app.workspace.revealLeaf(leaves[0]!);
+      await this.app.workspace.revealLeaf(leaves[0]!);
     } else {
       const leaf = this.app.workspace.getRightLeaf(false);
       if (leaf) {
         await leaf.setViewState({ type: VIEW_TYPE_RELATED, active: true });
-        this.app.workspace.revealLeaf(leaf);
+        await this.app.workspace.revealLeaf(leaf);
       }
     }
     this.refreshRelatedPanel();
@@ -242,27 +242,29 @@ export default class SmartRelationsPlugin extends Plugin {
       new Notice('No active markdown note');
       return;
     }
-    let wrote = false;
-    let existingUuid: string | null = null;
+    const state: { wrote: boolean; existingUuid: string | null } = {
+      wrote: false,
+      existingUuid: null,
+    };
     try {
       await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
         const existing = typeof fm.id === 'string' ? fm.id : typeof fm.uuid === 'string' ? fm.uuid : '';
         if (existing && isValidUuid(existing)) {
-          existingUuid = existing;
+          state.existingUuid = existing;
           return;
         }
         fm.id = generateUuid();
-        wrote = true;
+        state.wrote = true;
       });
     } catch (e) {
       new Notice('Failed to add UUID \u2014 see console');
       console.error('Smart Relations: Failed to add UUID:', e);
       return;
     }
-    if (wrote) {
-      new Notice('Smart Relations: UUID added to current note');
-    } else if (existingUuid) {
-      new Notice(`Smart Relations: Note already has a UUID (${existingUuid})`);
+    if (state.wrote) {
+      new Notice('UUID added to current note');
+    } else if (state.existingUuid) {
+      new Notice(`Note already has a UUID (${state.existingUuid})`);
     }
   }
 

@@ -1,7 +1,6 @@
 import { App, Notice, PluginSettingTab, Setting, Plugin, TFile, TFolder, normalizePath } from 'obsidian';
 import { IndexManager } from './indexer/IndexManager';
 import { CombinedScorer } from './scoring/CombinedScorer';
-import { ScoredResult } from './scoring/types';
 import { CLAUDE_MD_CONTENT } from './claude-md-content';
 
 export interface ScoringWeights {
@@ -101,7 +100,7 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
 
     // Sample connections
     const sampleEl = about.createEl('div', { cls: 'sr-sample-connection' });
-    sampleEl.createEl('div', { cls: 'sr-sample-title', text: 'Sample Connections' });
+    sampleEl.createEl('div', { cls: 'sr-sample-title', text: 'Sample connections' });
     sampleEl.createEl('div', { cls: 'sr-sample-loading', text: 'Loading...' });
     void this.renderSampleConnection(sampleEl);
   }
@@ -113,7 +112,7 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
 
     // Index status
     const statusItem = grid.createEl('div', { cls: 'sr-stat-item' });
-    statusItem.createEl('span', { cls: 'sr-stat-label', text: 'Index Status' });
+    statusItem.createEl('span', { cls: 'sr-stat-label', text: 'Index status' });
     if (im.isCurrentlyIndexing()) {
       statusItem.createEl('span', { cls: 'sr-stat-value sr-status-indexing', text: 'Indexing...' });
     } else if (im.isLoaded()) {
@@ -125,13 +124,13 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
     // Notes count
     const corpus = im.getCorpusStats();
     this.addStatItem(grid, 'Notes', im.isLoaded() ? `${corpus.totalDocuments}` : '\u2014');
-    this.addStatItem(grid, 'Unique Terms', im.isLoaded() ? `${corpus.totalTerms.toLocaleString()}` : '\u2014');
-    this.addStatItem(grid, 'Avg Length', im.isLoaded() ? `${Math.round(corpus.avgDocumentLength)} words` : '\u2014');
+    this.addStatItem(grid, 'Unique terms', im.isLoaded() ? `${corpus.totalTerms.toLocaleString()}` : '\u2014');
+    this.addStatItem(grid, 'Avg length', im.isLoaded() ? `${Math.round(corpus.avgDocumentLength)} words` : '\u2014');
 
     // Last indexed
     const lastTime = im.getLastIndexTime();
     const timeStr = lastTime ? this.formatRelativeTime(lastTime) : 'never';
-    this.addStatItem(grid, 'Last Indexed', timeStr);
+    this.addStatItem(grid, 'Last indexed', timeStr);
 
     // Dirty files
     if (im.isLoaded()) {
@@ -146,11 +145,11 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
     const actions = panel.createEl('div', { cls: 'sr-status-actions' });
     const reindexBtn = actions.createEl('button', { cls: 'mod-cta', text: 'Reindex vault' });
     this.plugin.registerDomEvent(reindexBtn, 'click', () => {
-      new Notice('Smart Relations: Reindexing vault...');
+      new Notice('Reindexing vault...');
       void im.rebuildAll((msg) => {
         reindexBtn.setText(msg);
       }).then(() => {
-        new Notice('Smart Relations: Reindex complete!');
+        new Notice('Reindex complete');
         this.display(); // Refresh the settings page
       });
     });
@@ -167,7 +166,7 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
     if (!im.isLoaded()) {
       if (container.isConnected) {
         container.empty();
-        container.createEl('div', { cls: 'sr-sample-title', text: 'Sample Connections' });
+        container.createEl('div', { cls: 'sr-sample-title', text: 'Sample connections' });
         container.createEl('div', {
           cls: 'sr-sample-empty',
           text: 'No connections available \u2014 index the vault first',
@@ -195,7 +194,7 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
       if (!sourceFile || !sourceUuid) {
         if (container.isConnected) {
           container.empty();
-          container.createEl('div', { cls: 'sr-sample-title', text: 'Sample Connections' });
+          container.createEl('div', { cls: 'sr-sample-title', text: 'Sample connections' });
           container.createEl('div', { cls: 'sr-sample-empty', text: 'No notes with UUIDs found' });
         }
         return;
@@ -209,7 +208,7 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
       if (!container.isConnected) return; // Settings tab was closed
 
       container.empty();
-      container.createEl('div', { cls: 'sr-sample-title', text: 'Sample Connections' });
+      container.createEl('div', { cls: 'sr-sample-title', text: 'Sample connections' });
 
       if (results.length === 0) {
         container.createEl('div', { cls: 'sr-sample-empty', text: 'No connections found for recent notes' });
@@ -230,7 +229,7 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
     } catch {
       if (container.isConnected) {
         container.empty();
-        container.createEl('div', { cls: 'sr-sample-title', text: 'Sample Connections' });
+        container.createEl('div', { cls: 'sr-sample-title', text: 'Sample connections' });
         container.createEl('div', { cls: 'sr-sample-empty', text: 'Could not load sample connections' });
       }
     }
@@ -268,7 +267,7 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
     // Action buttons
     const actions = content.createEl('div', { cls: 'sr-deploy-actions' });
 
-    const deployBtn = actions.createEl('button', { cls: 'mod-cta', text: 'Deploy / Update' });
+    const deployBtn = actions.createEl('button', { cls: 'mod-cta', text: 'Deploy / update' });
     this.plugin.registerDomEvent(deployBtn, 'click', async () => {
       const folder = this.plugin.settings.claudeMdFolder.trim();
       if (!folder) {
@@ -310,8 +309,8 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
       try {
         const existing = this.app.vault.getAbstractFileByPath(targetPath);
         if (existing instanceof TFile) {
-          await this.app.vault.trash(existing, true);
-          new Notice('CLAUDE.md moved to system trash');
+          await this.app.fileManager.trashFile(existing);
+          new Notice('CLAUDE.md moved to trash');
         } else {
           new Notice('CLAUDE.md not found at that location');
         }
@@ -488,7 +487,7 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
   // ==================== Section 5: Performance ====================
 
   private renderPerformanceSection(containerEl: HTMLElement): void {
-    const content = this.createCollapsibleSection(containerEl, 'Performance & Memory');
+    const content = this.createCollapsibleSection(containerEl, 'Performance & memory');
 
     content.createEl('p', {
       cls: 'sr-section-desc',

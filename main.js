@@ -307,7 +307,7 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
     });
     this.renderStatusPanel(about);
     const sampleEl = about.createEl("div", { cls: "sr-sample-connection" });
-    sampleEl.createEl("div", { cls: "sr-sample-title", text: "Sample Connections" });
+    sampleEl.createEl("div", { cls: "sr-sample-title", text: "Sample connections" });
     sampleEl.createEl("div", { cls: "sr-sample-loading", text: "Loading..." });
     void this.renderSampleConnection(sampleEl);
   }
@@ -316,7 +316,7 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
     const panel = container.createEl("div", { cls: "sr-status-panel" });
     const grid = panel.createEl("div", { cls: "sr-status-grid" });
     const statusItem = grid.createEl("div", { cls: "sr-stat-item" });
-    statusItem.createEl("span", { cls: "sr-stat-label", text: "Index Status" });
+    statusItem.createEl("span", { cls: "sr-stat-label", text: "Index status" });
     if (im.isCurrentlyIndexing()) {
       statusItem.createEl("span", { cls: "sr-stat-value sr-status-indexing", text: "Indexing..." });
     } else if (im.isLoaded()) {
@@ -326,11 +326,11 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
     }
     const corpus = im.getCorpusStats();
     this.addStatItem(grid, "Notes", im.isLoaded() ? `${corpus.totalDocuments}` : "\u2014");
-    this.addStatItem(grid, "Unique Terms", im.isLoaded() ? `${corpus.totalTerms.toLocaleString()}` : "\u2014");
-    this.addStatItem(grid, "Avg Length", im.isLoaded() ? `${Math.round(corpus.avgDocumentLength)} words` : "\u2014");
+    this.addStatItem(grid, "Unique terms", im.isLoaded() ? `${corpus.totalTerms.toLocaleString()}` : "\u2014");
+    this.addStatItem(grid, "Avg length", im.isLoaded() ? `${Math.round(corpus.avgDocumentLength)} words` : "\u2014");
     const lastTime = im.getLastIndexTime();
     const timeStr = lastTime ? this.formatRelativeTime(lastTime) : "never";
-    this.addStatItem(grid, "Last Indexed", timeStr);
+    this.addStatItem(grid, "Last indexed", timeStr);
     if (im.isLoaded()) {
       const dirtyCount = im.getDirtyFiles().length;
       const dirtyText = dirtyCount > 0 ? `${dirtyCount} pending` : "up to date";
@@ -341,11 +341,11 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
     const actions = panel.createEl("div", { cls: "sr-status-actions" });
     const reindexBtn = actions.createEl("button", { cls: "mod-cta", text: "Reindex vault" });
     this.plugin.registerDomEvent(reindexBtn, "click", () => {
-      new import_obsidian.Notice("Smart Relations: Reindexing vault...");
+      new import_obsidian.Notice("Reindexing vault...");
       void im.rebuildAll((msg) => {
         reindexBtn.setText(msg);
       }).then(() => {
-        new import_obsidian.Notice("Smart Relations: Reindex complete!");
+        new import_obsidian.Notice("Reindex complete");
         this.display();
       });
     });
@@ -360,7 +360,7 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
     if (!im.isLoaded()) {
       if (container.isConnected) {
         container.empty();
-        container.createEl("div", { cls: "sr-sample-title", text: "Sample Connections" });
+        container.createEl("div", { cls: "sr-sample-title", text: "Sample connections" });
         container.createEl("div", {
           cls: "sr-sample-empty",
           text: "No connections available \u2014 index the vault first"
@@ -383,7 +383,7 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
       if (!sourceFile || !sourceUuid) {
         if (container.isConnected) {
           container.empty();
-          container.createEl("div", { cls: "sr-sample-title", text: "Sample Connections" });
+          container.createEl("div", { cls: "sr-sample-title", text: "Sample connections" });
           container.createEl("div", { cls: "sr-sample-empty", text: "No notes with UUIDs found" });
         }
         return;
@@ -394,7 +394,7 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
       );
       if (!container.isConnected) return;
       container.empty();
-      container.createEl("div", { cls: "sr-sample-title", text: "Sample Connections" });
+      container.createEl("div", { cls: "sr-sample-title", text: "Sample connections" });
       if (results.length === 0) {
         container.createEl("div", { cls: "sr-sample-empty", text: "No connections found for recent notes" });
         return;
@@ -413,7 +413,7 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
     } catch (e) {
       if (container.isConnected) {
         container.empty();
-        container.createEl("div", { cls: "sr-sample-title", text: "Sample Connections" });
+        container.createEl("div", { cls: "sr-sample-title", text: "Sample connections" });
         container.createEl("div", { cls: "sr-sample-empty", text: "Could not load sample connections" });
       }
     }
@@ -433,7 +433,7 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
     const statusEl = content.createEl("div", { cls: "sr-deploy-status" });
     this.updateDeployStatus(statusEl);
     const actions = content.createEl("div", { cls: "sr-deploy-actions" });
-    const deployBtn = actions.createEl("button", { cls: "mod-cta", text: "Deploy / Update" });
+    const deployBtn = actions.createEl("button", { cls: "mod-cta", text: "Deploy / update" });
     this.plugin.registerDomEvent(deployBtn, "click", async () => {
       const folder = this.plugin.settings.claudeMdFolder.trim();
       if (!folder) {
@@ -474,8 +474,8 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
       try {
         const existing = this.app.vault.getAbstractFileByPath(targetPath);
         if (existing instanceof import_obsidian.TFile) {
-          await this.app.vault.trash(existing, true);
-          new import_obsidian.Notice("CLAUDE.md moved to system trash");
+          await this.app.fileManager.trashFile(existing);
+          new import_obsidian.Notice("CLAUDE.md moved to trash");
         } else {
           new import_obsidian.Notice("CLAUDE.md not found at that location");
         }
@@ -578,7 +578,7 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
   }
   // ==================== Section 5: Performance ====================
   renderPerformanceSection(containerEl) {
-    const content = this.createCollapsibleSection(containerEl, "Performance & Memory");
+    const content = this.createCollapsibleSection(containerEl, "Performance & memory");
     content.createEl("p", {
       cls: "sr-section-desc",
       text: "These settings control memory usage and UI responsiveness. Disabling optional indexes saves memory on mobile devices."
@@ -717,7 +717,7 @@ var UuidIndexer = class {
    * Skips files without valid UUIDs. Warns on duplicates.
    * @param excludedFolders - folder paths to skip
    */
-  async buildIndex(excludedFolders = []) {
+  buildIndex(excludedFolders = []) {
     const index = {};
     const warnings = [];
     const files = this.app.vault.getMarkdownFiles();
@@ -1807,7 +1807,7 @@ var IndexManager = class {
         onProgress == null ? void 0 : onProgress("Adding UUIDs to notes without them...", 0.05);
         const added = await this.autoAddUuidsToVault();
         if (added > 0) {
-          new import_obsidian4.Notice(`Smart Relations: Added UUIDs to ${added} note${added === 1 ? "" : "s"}`);
+          new import_obsidian4.Notice(`Added UUIDs to ${added} note${added === 1 ? "" : "s"}`);
         }
       }
       onProgress == null ? void 0 : onProgress("Building UUID index...", 0.1);
@@ -2277,7 +2277,7 @@ var IndexCache = class {
   constructor(plugin) {
     this.plugin = plugin;
     var _a;
-    this.basePath = `${(_a = plugin.manifest.dir) != null ? _a : ".obsidian/plugins/smart-relations"}`;
+    this.basePath = (_a = plugin.manifest.dir) != null ? _a : `${plugin.app.vault.configDir}/plugins/${plugin.manifest.id}`;
   }
   /**
    * Load an index from a JSON file in the plugin data directory.
@@ -2315,7 +2315,7 @@ var IndexCache = class {
   /**
    * Check if an index file exists.
    */
-  async exists(filename) {
+  exists(filename) {
     const path = `${this.basePath}/${filename}`;
     return this.plugin.app.vault.adapter.exists(path);
   }
@@ -2587,7 +2587,7 @@ var RelatedNotesView = class extends import_obsidian6.ItemView {
     return VIEW_TYPE_RELATED;
   }
   getDisplayText() {
-    return "Related Notes";
+    return "Related notes";
   }
   getIcon() {
     return "network";
@@ -2599,11 +2599,13 @@ var RelatedNotesView = class extends import_obsidian6.ItemView {
   setRelatedCallback(fn) {
     this.getRelatedForFile = fn;
   }
-  async onOpen() {
+  onOpen() {
     this.renderEmptyState("Open a note to see related notes");
+    return Promise.resolve();
   }
-  async onClose() {
+  onClose() {
     this.contentEl.empty();
+    return Promise.resolve();
   }
   /**
    * Update the panel for the currently active file.
@@ -2633,7 +2635,7 @@ var RelatedNotesView = class extends import_obsidian6.ItemView {
     this.contentEl.empty();
     const container = this.contentEl.createEl("div", { cls: "smart-relations-container" });
     const header = container.createEl("div", { cls: "sr-header" });
-    header.createEl("h4", { text: "Related Notes" });
+    header.createEl("h4", { text: "Related notes" });
     const refreshBtn = header.createEl("button", { cls: "sr-refresh-btn", attr: { "aria-label": "Refresh" } });
     refreshBtn.setText("\u21BB");
     this.registerDomEvent(refreshBtn, "click", () => {
@@ -2730,7 +2732,7 @@ var SmartRelationsPlugin = class extends import_obsidian8.Plugin {
     if (!loaded) {
       this.app.workspace.onLayoutReady(() => {
         void (async () => {
-          new import_obsidian8.Notice("Smart Relations: Building index for the first time...");
+          new import_obsidian8.Notice("Building index for the first time...");
           await this.indexManager.rebuildAll((msg) => {
             this.updateStatusBar(msg);
           });
@@ -2850,23 +2852,23 @@ var SmartRelationsPlugin = class extends import_obsidian8.Plugin {
     return `${Math.floor(hours / 24)}d ago`;
   }
   async reindexVault() {
-    new import_obsidian8.Notice("Smart Relations: Reindexing vault...");
+    new import_obsidian8.Notice("Reindexing vault...");
     await this.indexManager.rebuildAll((msg) => {
       this.updateStatusBar(msg);
     });
     this.updateStatusBarDefault();
     this.refreshRelatedPanel();
-    new import_obsidian8.Notice("Smart Relations: Reindex complete!");
+    new import_obsidian8.Notice("Reindex complete");
   }
   async activateRelatedPanel() {
     const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_RELATED);
     if (leaves.length > 0) {
-      this.app.workspace.revealLeaf(leaves[0]);
+      await this.app.workspace.revealLeaf(leaves[0]);
     } else {
       const leaf = this.app.workspace.getRightLeaf(false);
       if (leaf) {
         await leaf.setViewState({ type: VIEW_TYPE_RELATED, active: true });
-        this.app.workspace.revealLeaf(leaf);
+        await this.app.workspace.revealLeaf(leaf);
       }
     }
     this.refreshRelatedPanel();
@@ -2899,27 +2901,29 @@ var SmartRelationsPlugin = class extends import_obsidian8.Plugin {
       new import_obsidian8.Notice("No active markdown note");
       return;
     }
-    let wrote = false;
-    let existingUuid = null;
+    const state = {
+      wrote: false,
+      existingUuid: null
+    };
     try {
       await this.app.fileManager.processFrontMatter(file, (fm) => {
         const existing = typeof fm.id === "string" ? fm.id : typeof fm.uuid === "string" ? fm.uuid : "";
         if (existing && isValidUuid(existing)) {
-          existingUuid = existing;
+          state.existingUuid = existing;
           return;
         }
         fm.id = generateUuid();
-        wrote = true;
+        state.wrote = true;
       });
     } catch (e) {
       new import_obsidian8.Notice("Failed to add UUID \u2014 see console");
       console.error("Smart Relations: Failed to add UUID:", e);
       return;
     }
-    if (wrote) {
-      new import_obsidian8.Notice("Smart Relations: UUID added to current note");
-    } else if (existingUuid) {
-      new import_obsidian8.Notice(`Smart Relations: Note already has a UUID (${existingUuid})`);
+    if (state.wrote) {
+      new import_obsidian8.Notice("UUID added to current note");
+    } else if (state.existingUuid) {
+      new import_obsidian8.Notice(`Note already has a UUID (${state.existingUuid})`);
     }
   }
   async suggestRelations() {

@@ -104,7 +104,7 @@ export class IndexManager {
         onProgress?.('Adding UUIDs to notes without them...', 0.05);
         const added = await this.autoAddUuidsToVault();
         if (added > 0) {
-          new Notice(`Smart Relations: Added UUIDs to ${added} note${added === 1 ? '' : 's'}`);
+          new Notice(`Added UUIDs to ${added} note${added === 1 ? '' : 's'}`);
         }
       }
 

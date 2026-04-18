@@ -4,8 +4,10 @@ export class IndexCache {
   private basePath: string;
 
   constructor(private plugin: Plugin) {
-    // Store indexes in the plugin's data directory
-    this.basePath = `${plugin.manifest.dir ?? '.obsidian/plugins/smart-relations'}`;
+    // Store indexes in the plugin's data directory.
+    // Obsidian's config folder is not always `.obsidian` — fall back via Vault#configDir.
+    this.basePath = plugin.manifest.dir
+      ?? `${plugin.app.vault.configDir}/plugins/${plugin.manifest.id}`;
   }
 
   /**
@@ -47,7 +49,7 @@ export class IndexCache {
   /**
    * Check if an index file exists.
    */
-  async exists(filename: string): Promise<boolean> {
+  exists(filename: string): Promise<boolean> {
     const path = `${this.basePath}/${filename}`;
     return this.plugin.app.vault.adapter.exists(path);
   }

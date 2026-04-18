@@ -246,12 +246,12 @@ export default class SmartRelationsPlugin extends Plugin {
     let existingUuid: string | null = null;
     try {
       await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
-        const existing = fm.uuid;
-        if (typeof existing === 'string' && isValidUuid(existing)) {
+        const existing = typeof fm.id === 'string' ? fm.id : typeof fm.uuid === 'string' ? fm.uuid : '';
+        if (existing && isValidUuid(existing)) {
           existingUuid = existing;
           return;
         }
-        fm.uuid = generateUuid();
+        fm.id = generateUuid();
         wrote = true;
       });
     } catch (e) {
@@ -294,11 +294,13 @@ export default class SmartRelationsPlugin extends Plugin {
           fm['related'] = [];
         }
         const related = fm['related'] as unknown[];
-        // Check if already exists
+        // Check if already exists (accept both id and legacy uuid sub-keys)
         const existing = related.some((entry: unknown) => {
           if (typeof entry === 'string') return entry === selected.uuid;
-          if (typeof entry === 'object' && entry !== null && 'uuid' in entry) {
-            return (entry as { uuid: string }).uuid === selected.uuid;
+          if (typeof entry === 'object' && entry !== null) {
+            const obj = entry as Record<string, unknown>;
+            const entryId = typeof obj.id === 'string' ? obj.id : typeof obj.uuid === 'string' ? obj.uuid : '';
+            return entryId === selected.uuid;
           }
           return false;
         });
@@ -307,7 +309,7 @@ export default class SmartRelationsPlugin extends Plugin {
           return;
         }
         if (this.settings.useRichRelatedFormat) {
-          related.push({ uuid: selected.uuid, rel: 'related', auto: true });
+          related.push({ id: selected.uuid, rel: 'related', auto: true });
         } else {
           related.push(selected.uuid);
         }

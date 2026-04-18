@@ -555,8 +555,8 @@ export class IndexManager {
   private hasValidUuid(cache: { frontmatter?: Record<string, unknown> }): boolean {
     const fm = cache.frontmatter;
     if (!fm) return false;
-    const uuid = fm.uuid;
-    return typeof uuid === 'string' && isValidUuid(uuid);
+    const existing = typeof fm.id === 'string' ? fm.id : typeof fm.uuid === 'string' ? fm.uuid : '';
+    return !!existing && isValidUuid(existing);
   }
 
   /**
@@ -578,11 +578,11 @@ export class IndexManager {
     let wrote = false;
     try {
       await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
-        const existing = fm.uuid;
-        if (typeof existing === 'string' && isValidUuid(existing)) {
+        const existing = typeof fm.id === 'string' ? fm.id : typeof fm.uuid === 'string' ? fm.uuid : '';
+        if (existing && isValidUuid(existing)) {
           return;
         }
-        fm.uuid = generateUuid();
+        fm.id = generateUuid();
         wrote = true;
       });
     } catch (e) {

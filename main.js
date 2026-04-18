@@ -630,13 +630,14 @@ function generateUuid() {
 function parseFrontmatter(cache) {
   const fm = cache.frontmatter;
   if (!fm) return null;
-  const uuid = fm.uuid;
-  if (!uuid || typeof uuid !== "string" || !isValidUuid(uuid)) {
+  const rawId = typeof fm.id === "string" ? fm.id : typeof fm.uuid === "string" ? fm.uuid : "";
+  if (!rawId || !isValidUuid(rawId)) {
     return null;
   }
+  const rawKind = typeof fm.kind === "string" ? fm.kind : typeof fm.type === "string" ? fm.type : "note";
   return {
-    uuid: uuid.toLowerCase(),
-    type: typeof fm.type === "string" ? fm.type : "note",
+    uuid: rawId.toLowerCase(),
+    type: rawKind,
     status: typeof fm.status === "string" ? fm.status : "raw",
     created: typeof fm.created === "string" ? fm.created : "",
     modified: typeof fm.modified === "string" ? fm.modified : "",
@@ -686,10 +687,10 @@ function parseRelatedField(related) {
     }
     if (typeof entry === "object" && entry !== null) {
       const obj = entry;
-      const uuid = typeof obj.uuid === "string" ? obj.uuid : "";
-      if (!isValidUuid(uuid)) return null;
+      const rawId = typeof obj.id === "string" ? obj.id : typeof obj.uuid === "string" ? obj.uuid : "";
+      if (!isValidUuid(rawId)) return null;
       return {
-        uuid: uuid.toLowerCase(),
+        uuid: rawId.toLowerCase(),
         rel: typeof obj.rel === "string" ? obj.rel : "related",
         auto: typeof obj.auto === "boolean" ? obj.auto : false
       };
@@ -2189,8 +2190,8 @@ var IndexManager = class {
   hasValidUuid(cache) {
     const fm = cache.frontmatter;
     if (!fm) return false;
-    const uuid = fm.uuid;
-    return typeof uuid === "string" && isValidUuid(uuid);
+    const existing = typeof fm.id === "string" ? fm.id : typeof fm.uuid === "string" ? fm.uuid : "";
+    return !!existing && isValidUuid(existing);
   }
   /**
    * Check if a file path is in an excluded folder.
@@ -2210,11 +2211,11 @@ var IndexManager = class {
     let wrote = false;
     try {
       await this.app.fileManager.processFrontMatter(file, (fm) => {
-        const existing = fm.uuid;
-        if (typeof existing === "string" && isValidUuid(existing)) {
+        const existing = typeof fm.id === "string" ? fm.id : typeof fm.uuid === "string" ? fm.uuid : "";
+        if (existing && isValidUuid(existing)) {
           return;
         }
-        fm.uuid = generateUuid();
+        fm.id = generateUuid();
         wrote = true;
       });
     } catch (e) {
@@ -2894,12 +2895,12 @@ var SmartRelationsPlugin = class extends import_obsidian8.Plugin {
     let existingUuid = null;
     try {
       await this.app.fileManager.processFrontMatter(file, (fm) => {
-        const existing = fm.uuid;
-        if (typeof existing === "string" && isValidUuid(existing)) {
+        const existing = typeof fm.id === "string" ? fm.id : typeof fm.uuid === "string" ? fm.uuid : "";
+        if (existing && isValidUuid(existing)) {
           existingUuid = existing;
           return;
         }
-        fm.uuid = generateUuid();
+        fm.id = generateUuid();
         wrote = true;
       });
     } catch (e) {
@@ -2941,8 +2942,10 @@ var SmartRelationsPlugin = class extends import_obsidian8.Plugin {
         const related = fm["related"];
         const existing = related.some((entry) => {
           if (typeof entry === "string") return entry === selected.uuid;
-          if (typeof entry === "object" && entry !== null && "uuid" in entry) {
-            return entry.uuid === selected.uuid;
+          if (typeof entry === "object" && entry !== null) {
+            const obj = entry;
+            const entryId = typeof obj.id === "string" ? obj.id : typeof obj.uuid === "string" ? obj.uuid : "";
+            return entryId === selected.uuid;
           }
           return false;
         });
@@ -2951,7 +2954,7 @@ var SmartRelationsPlugin = class extends import_obsidian8.Plugin {
           return;
         }
         if (this.settings.useRichRelatedFormat) {
-          related.push({ uuid: selected.uuid, rel: "related", auto: true });
+          related.push({ id: selected.uuid, rel: "related", auto: true });
         } else {
           related.push(selected.uuid);
         }

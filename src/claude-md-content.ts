@@ -16,11 +16,19 @@ The indexes are stored as JSON files at:
 
 If the user\u2019s vault is at \`/path/to/vault\`, the indexes are at \`/path/to/vault/.obsidian/plugins/smart-relations/\`.
 
+## Note Identifier
+
+Every indexed note carries an \`id\` field in its YAML frontmatter holding a UUID v4 value. That UUID is the canonical identifier used across every index below \u2014 when you see a UUID string as a JSON key or as the \`uuid\` field inside a term posting, it refers back to the \`id\` in that note\u2019s frontmatter.
+
+Smart Relations also accepts the legacy \`uuid:\` field for backward compatibility; the value format (UUID v4) is the same either way. New notes written by the plugin use \`id:\`.
+
+The entity kind is recorded in a \`kind:\` field (or legacy \`type:\`) and appears in the UUID index as \`type\` for historical reasons. It\u2019s a free-form string \u2014 non-TTRPG vaults can use whatever vocabulary fits.
+
 ## Available Indexes
 
 ### \`_uuid_index.json\` \u2014 Note Catalog (Read This First)
 
-Maps every note\u2019s UUID to its metadata. This is your starting point for any query.
+Maps every note\u2019s \`id\` (UUID v4 value) to its metadata. This is your starting point for any query.
 
 \`\`\`json
 {
@@ -208,7 +216,7 @@ This is fastest when the vault is well-tagged and the question maps to a specifi
 
 - **Indexes may be stale** \u2014 If the user has edited notes since the last reindex, suggest they run "Reindex vault" in Obsidian first
 - **The term index uses Porter stemming** \u2014 Search for stemmed forms, not raw words
-- **UUIDs are the canonical identifiers** \u2014 Always use UUIDs to cross-reference between indexes, never file paths (paths can change)
+- **UUIDs are the canonical identifiers** \u2014 The \`id\` (or legacy \`uuid\`) frontmatter field holds a UUID v4. Always cross-reference between indexes by that value, never by file path (paths can change)
 - **The \`_term_index.json\` can be large** \u2014 For vaults with 1000+ notes, it may be several MB. Use Grep to search for specific terms rather than reading the whole file
 - **All indexes are deterministic** \u2014 Same vault content always produces the same indexes. No randomness or external data
 `;

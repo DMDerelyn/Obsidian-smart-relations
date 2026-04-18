@@ -27,31 +27,34 @@ These four scores are normalized to a 0–1 range and combined using configurabl
 ## Key Features
 
 - **Fully local** — No API calls, no cloud services, no data leaves your machine
-- **UUID-based identity** — Notes are tracked by a `uuid` frontmatter field so renaming a file never breaks a link. Smart Relations can auto-add UUIDs to every note if you opt in, or you can add them one at a time with the "Add UUID to current note" command.
+- **Stable identity** — Notes are tracked by an `id` frontmatter field (UUID v4) so renaming a file never breaks a link. Smart Relations can auto-add IDs to every note if you opt in, or you can add them one at a time with the "Add UUID to current note" command. The legacy `uuid` field is still accepted for existing vaults.
 - **Incremental indexing** — Only re-indexes notes that changed, with a 500ms debounce window for batching rapid edits
 - **File lifecycle handling** — Properly handles note creation, modification, deletion, and renaming without corrupting indexes
 - **Persistent indexes** — Indexes are saved to disk and loaded on plugin startup, so you don't re-index on every restart
 - **Configurable scoring** — Adjust the weight of each scoring signal to match your workflow
-- **Two related formats** — Supports both simple UUID arrays and rich objects with relation type metadata
+- **Two related formats** — Supports both simple ID arrays and rich objects with relation type metadata
 - **Theme-compatible UI** — Uses Obsidian's CSS variables for seamless light/dark theme support
+- **Desktop + mobile** — Runs on Obsidian desktop and mobile. Two settings (**Store term positions** off, **Index batch size** lowered) let you trade indexing fidelity for memory and UI responsiveness on phones and tablets. See [Settings](#settings).
 
 ## Requirements
 
 ### Note Format
 
-Every indexed note must have a `uuid` field in its YAML frontmatter. This is the canonical identifier used for all cross-referencing — it lets Smart Relations track notes through renames and moves without breaking links. Notes without a UUID are simply skipped during indexing (not deleted, not modified).
+Every indexed note must have an `id` field in its YAML frontmatter. This is the canonical identifier used for all cross-referencing — it lets Smart Relations track notes through renames and moves without breaking links. Notes without an `id` are simply skipped during indexing (not deleted, not modified).
 
-**You have two ways to get UUIDs into your notes:**
+For backward compatibility, Smart Relations also reads the legacy `uuid` field if `id` is absent. New notes written by the plugin always use `id`. The value format is the same either way: UUID v4.
 
-1. **Enable "Auto-add UUIDs to notes"** in Settings → Smart Relations → Indexing. When enabled, every reindex (and every file create/modify) will add a UUID to any note that lacks one. This writes to your files, which is why it's **disabled by default**.
-2. **Run the command "Smart Relations: Add UUID to current note"** from the command palette. This adds a UUID to the active note only. Use this if you want manual control.
+**You have two ways to get IDs into your notes:**
 
-Existing notes are never overwritten — if a valid UUID is already present, Smart Relations leaves it alone. The generated UUIDs are standard v4 format:
+1. **Enable "Auto-add UUIDs to notes"** in Settings → Smart Relations → Indexing. When enabled, every reindex (and every file create/modify) will add an `id` to any note that lacks one. This writes to your files, which is why it's **disabled by default**.
+2. **Run the command "Smart Relations: Add UUID to current note"** from the command palette. This adds an `id` to the active note only. Use this if you want manual control.
+
+Existing notes are never overwritten — if a valid `id` (or legacy `uuid`) is already present, Smart Relations leaves it alone. The generated values are standard UUID v4 format:
 
 ```yaml
 ---
-uuid: "550e8400-e29b-41d4-a716-446655440000"
-type: knowledge
+id: "550e8400-e29b-41d4-a716-446655440000"
+kind: knowledge
 status: raw
 created: "2026-04-07"
 modified: "2026-04-07"
@@ -65,12 +68,14 @@ summary: "One-sentence description of this note."
 Your content here.
 ```
 
-**UUID rules:**
+The `kind` field (previously `type`) is an optional free-form string used for filtering and display. Smart Relations accepts either `kind` or `type` for backward compatibility and does not validate the value against any enum — non-TTRPG vaults are free to use whatever vocabulary fits.
+
+**ID rules:**
 - Must be a valid UUID v4 (lowercase, hyphenated, 36 characters)
-- Must be the first field in frontmatter
+- Should be the first field in frontmatter
 - Must be unique across the entire vault — duplicates are detected and flagged
-- Must never change once assigned — UUIDs are immutable identifiers
-- Notes without a UUID are logged as warnings and excluded from indexing
+- Must never change once assigned — IDs are immutable
+- Notes without an `id` (or legacy `uuid`) are logged as warnings and excluded from indexing
 
 ### Related Field Formats
 
@@ -86,21 +91,19 @@ related:
 **Rich format** (objects with relation type and auto-detection flag):
 ```yaml
 related:
-  - uuid: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+  - id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
     rel: "references"
     auto: true
-  - uuid: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+  - id: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
     rel: "supports"
     auto: false
 ```
 
-The plugin can read both formats regardless of the setting. The setting only controls which format is used when *writing* new entries via the "Suggest relations" command.
+The plugin reads both formats regardless of the setting, and within the rich format it accepts either `id` (preferred) or legacy `uuid` as the sub-key. The setting only controls which format is used when *writing* new entries via the "Suggest relations" command; new rich entries are always written with `id`.
 
 ## Installation
 
-### Community Plugin Browser (Recommended)
-
-> **Note:** Community plugin submission is pending. Once accepted, this will be the easiest way to install.
+### Community Plugin Browser
 
 1. Open Obsidian Settings
 2. Go to **Community plugins** and disable **Restricted mode** if needed
@@ -109,7 +112,7 @@ The plugin can read both formats regardless of the setting. The setting only con
 
 No build tools, no dependencies — it just works.
 
-### Manual Download (Available Now)
+### Manual Download
 
 1. Go to the [latest GitHub Release](https://github.com/DMDerelyn/Obsidian-smart-relations/releases/latest)
 2. Download three files: `main.js`, `manifest.json`, and `styles.css`

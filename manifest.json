@@ -3,7 +3,7 @@
   "name": "Smart Relations",
   "version": "0.1.1",
   "minAppVersion": "1.4.0",
-  "description": "Build local vectorization indexes for RAG-style retrieval and relation discovery",
+  "description": "Build local vectorization indexes for RAG-style retrieval and relation discovery.",
   "author": "DMDerelyn",
   "authorUrl": "https://github.com/DMDerelyn",
   "isDesktopOnly": false

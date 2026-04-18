@@ -57,16 +57,16 @@ A GitHub Release is needed for BRAT support and for future community plugin subm
 
 1. Go to: [github.com/DMDerelyn/Obsidian-smart-relations/releases/new](https://github.com/DMDerelyn/Obsidian-smart-relations/releases/new)
 
-2. **Choose a tag**: Type `0.1.0` in the tag field and click **"Create new tag: 0.1.0 on publish"**
+2. **Choose a tag**: Type the current version from `manifest.json` (for example `0.1.1`) in the tag field and click **"Create new tag: 0.1.1 on publish"**. Use no `v` prefix — Obsidian's release flow requires the tag to match the version string exactly.
 
 3. **Target**: Select the `main` branch
 
-4. **Release title**: `Smart Relations v0.1.0`
+4. **Release title**: `Smart Relations v0.1.1`
 
 5. **Description** (paste this):
 
 ```
-Initial release of Smart Relations — a local RAG indexing plugin for Obsidian.
+Smart Relations — a local RAG indexing plugin for Obsidian.
 
 ## Features
 - Builds 6 local indexes (BM25, tag co-occurrence, n-gram, relation graph, document stats, UUID index)
@@ -120,7 +120,7 @@ Or install via [BRAT](https://github.com/TfTHacker/obsidian42-brat) using repo: 
      "id": "smart-relations",
      "name": "Smart Relations",
      "author": "DMDerelyn",
-     "description": "Build local vectorization indexes for RAG-style retrieval and relation discovery",
+     "description": "Build local vectorization indexes for RAG-style retrieval and relation discovery.",
      "repo": "DMDerelyn/Obsidian-smart-relations"
    }
    ```

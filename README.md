@@ -27,13 +27,14 @@ These four scores are normalized to a 0–1 range and combined using configurabl
 ## Key Features
 
 - **Fully local** — No API calls, no cloud services, no data leaves your machine
-- **UUID-based identity** — Notes are tracked by a `uuid` frontmatter field so renaming a file never breaks a link. Smart Relations can auto-add UUIDs to every note if you opt in, or you can add them one at a time with the "Add UUID to current note" command.
+- **Stable identity** — Notes are tracked by an `id` frontmatter field (UUID v4) so renaming a file never breaks a link. Smart Relations can auto-add IDs to every note if you opt in, or you can add them one at a time with the "Add UUID to current note" command. The legacy `uuid` field is still accepted for existing vaults.
 - **Incremental indexing** — Only re-indexes notes that changed, with a 500ms debounce window for batching rapid edits
 - **File lifecycle handling** — Properly handles note creation, modification, deletion, and renaming without corrupting indexes
 - **Persistent indexes** — Indexes are saved to disk and loaded on plugin startup, so you don't re-index on every restart
 - **Configurable scoring** — Adjust the weight of each scoring signal to match your workflow
-- **Two related formats** — Supports both simple UUID arrays and rich objects with relation type metadata
+- **Two related formats** — Supports both simple ID arrays and rich objects with relation type metadata
 - **Theme-compatible UI** — Uses Obsidian's CSS variables for seamless light/dark theme support
+- **Desktop + mobile** — Runs on Obsidian desktop and mobile. Two settings (**Store term positions** off, **Index batch size** lowered) let you trade indexing fidelity for memory and UI responsiveness on phones and tablets. See [Settings](#settings).
 
 ## Requirements
 
@@ -102,9 +103,7 @@ The plugin reads both formats regardless of the setting, and within the rich for
 
 ## Installation
 
-### Community Plugin Browser (Recommended)
-
-> **Note:** Community plugin submission is pending. Once accepted, this will be the easiest way to install.
+### Community Plugin Browser
 
 1. Open Obsidian Settings
 2. Go to **Community plugins** and disable **Restricted mode** if needed
@@ -113,7 +112,7 @@ The plugin reads both formats regardless of the setting, and within the rich for
 
 No build tools, no dependencies — it just works.
 
-### Manual Download (Available Now)
+### Manual Download
 
 1. Go to the [latest GitHub Release](https://github.com/DMDerelyn/Obsidian-smart-relations/releases/latest)
 2. Download three files: `main.js`, `manifest.json`, and `styles.css`

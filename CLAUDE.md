@@ -12,11 +12,19 @@ The indexes are stored as JSON files at:
 
 If the user's vault is at `/path/to/vault`, the indexes are at `/path/to/vault/.obsidian/plugins/smart-relations/`.
 
+## Note Identifier
+
+Every indexed note carries an `id` field in its YAML frontmatter holding a UUID v4 value. That UUID is the canonical identifier used across every index below — when you see a UUID string as a JSON key or as the `uuid` field inside a term posting, it refers back to the `id` in that note's frontmatter.
+
+Smart Relations also accepts the legacy `uuid:` field for backward compatibility; the value format (UUID v4) is the same either way. New notes written by the plugin use `id:`.
+
+The entity kind is recorded in a `kind:` field (or legacy `type:`) and appears in the UUID index as `type` for historical reasons. It's a free-form string — non-TTRPG vaults can use whatever vocabulary fits.
+
 ## Available Indexes
 
 ### `_uuid_index.json` — Note Catalog (Read This First)
 
-Maps every note's UUID to its metadata. This is your starting point for any query.
+Maps every note's `id` (UUID v4 value) to its metadata. This is your starting point for any query.
 
 ```json
 {
@@ -204,6 +212,6 @@ This is fastest when the vault is well-tagged and the question maps to a specifi
 
 - **Indexes may be stale** — If the user has edited notes since the last reindex, suggest they run "Reindex vault" in Obsidian first
 - **The term index uses Porter stemming** — Search for stemmed forms, not raw words
-- **UUIDs are the canonical identifiers** — Always use UUIDs to cross-reference between indexes, never file paths (paths can change)
+- **UUIDs are the canonical identifiers** — The `id` (or legacy `uuid`) frontmatter field holds a UUID v4. Always cross-reference between indexes by that value, never by file path (paths can change)
 - **The `_term_index.json` can be large** — For vaults with 1000+ notes, it may be several MB. Use Grep to search for specific terms rather than reading the whole file
 - **All indexes are deterministic** — Same vault content always produces the same indexes. No randomness or external data

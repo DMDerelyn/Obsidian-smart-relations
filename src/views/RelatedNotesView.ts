@@ -12,7 +12,7 @@ export class RelatedNotesView extends ItemView {
   }
 
   getViewType(): string { return VIEW_TYPE_RELATED; }
-  getDisplayText(): string { return 'Related Notes'; }
+  getDisplayText(): string { return 'Related notes'; }
   getIcon(): string { return 'network'; }
 
   /**
@@ -23,12 +23,14 @@ export class RelatedNotesView extends ItemView {
     this.getRelatedForFile = fn;
   }
 
-  async onOpen(): Promise<void> {
+  onOpen(): Promise<void> {
     this.renderEmptyState('Open a note to see related notes');
+    return Promise.resolve();
   }
 
-  async onClose(): Promise<void> {
+  onClose(): Promise<void> {
     this.contentEl.empty();
+    return Promise.resolve();
   }
 
   /**
@@ -67,7 +69,7 @@ export class RelatedNotesView extends ItemView {
 
     // Header
     const header = container.createEl('div', { cls: 'sr-header' });
-    header.createEl('h4', { text: 'Related Notes' });
+    header.createEl('h4', { text: 'Related notes' });
     const refreshBtn = header.createEl('button', { cls: 'sr-refresh-btn', attr: { 'aria-label': 'Refresh' } });
     refreshBtn.setText('\u21BB');
     this.registerDomEvent(refreshBtn, 'click', () => { void this.updateForActiveFile(); });

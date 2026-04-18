@@ -1,6 +1,6 @@
 import { App, TFile } from 'obsidian';
 import { parseFrontmatter } from '../utils/frontmatter';
-import { RelationGraph, RelationEdge, UuidIndex } from './types';
+import { RelationGraph, UuidIndex } from './types';
 
 export class RelationGraphBuilder {
   constructor(private app: App) {}

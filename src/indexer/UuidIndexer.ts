@@ -1,6 +1,5 @@
 import { App, TFile, CachedMetadata } from 'obsidian';
 import { parseFrontmatter, extractTags } from '../utils/frontmatter';
-import { isValidUuid } from '../utils/uuid';
 import { UuidIndex, UuidEntry } from './types';
 
 export class UuidIndexer {
@@ -11,7 +10,7 @@ export class UuidIndexer {
    * Skips files without valid UUIDs. Warns on duplicates.
    * @param excludedFolders - folder paths to skip
    */
-  async buildIndex(excludedFolders: string[] = []): Promise<{ index: UuidIndex; warnings: string[] }> {
+  buildIndex(excludedFolders: string[] = []): { index: UuidIndex; warnings: string[] } {
     const index: UuidIndex = {};
     const warnings: string[] = [];
     const files = this.app.vault.getMarkdownFiles();

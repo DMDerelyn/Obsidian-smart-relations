@@ -384,7 +384,7 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
         if (container.isConnected) {
           container.empty();
           container.createEl("div", { cls: "sr-sample-title", text: "Sample connections" });
-          container.createEl("div", { cls: "sr-sample-empty", text: "No notes with UUIDs found" });
+          container.createEl("div", { cls: "sr-sample-empty", text: "No indexed notes found" });
         }
         return;
       }
@@ -425,7 +425,7 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
     desc.setText(
       "Optional convenience for users of Claude Code (the CLI/IDE tool). Writes a CLAUDE.md file into a vault folder of your choice. The file tells Claude Code how to use Smart Relations' indexes for RAG-style queries instead of scanning every note. Disabled by default \u2014 nothing is written unless you set a folder and click Deploy."
     );
-    new import_obsidian.Setting(content).setName("Deploy CLAUDE.md to folder").setDesc("Vault folder where CLAUDE.md will be placed. Leave empty to skip deployment.").addText((text) => text.setPlaceholder("e.g., Library/Knowledge").setValue(this.plugin.settings.claudeMdFolder).onChange(async (value) => {
+    new import_obsidian.Setting(content).setName("Target folder").setDesc("Vault folder to place the instructions file in. Leave empty to skip deployment.").addText((text) => text.setPlaceholder("e.g., Library/Knowledge").setValue(this.plugin.settings.claudeMdFolder).onChange(async (value) => {
       this.plugin.settings.claudeMdFolder = value.trim();
       await this.plugin.saveSettings();
       this.updateDeployStatus(statusEl);
@@ -462,7 +462,7 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
         new import_obsidian.Notice(`CLAUDE.md deployed to ${targetPath}`);
         this.updateDeployStatus(statusEl);
       } catch (e) {
-        new import_obsidian.Notice("Failed to deploy CLAUDE.md \u2014 check the folder path");
+        new import_obsidian.Notice("Failed to deploy; check the folder path");
         console.error("Smart Relations: CLAUDE.md deploy failed:", e);
       }
     });
@@ -475,13 +475,13 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
         const existing = this.app.vault.getAbstractFileByPath(targetPath);
         if (existing instanceof import_obsidian.TFile) {
           await this.app.fileManager.trashFile(existing);
-          new import_obsidian.Notice("CLAUDE.md moved to trash");
+          new import_obsidian.Notice("Instructions file moved to trash");
         } else {
-          new import_obsidian.Notice("CLAUDE.md not found at that location");
+          new import_obsidian.Notice("Instructions file not found at that location");
         }
         this.updateDeployStatus(statusEl);
       } catch (e) {
-        new import_obsidian.Notice("Failed to remove CLAUDE.md");
+        new import_obsidian.Notice("Failed to remove the instructions file");
         console.error("Smart Relations: CLAUDE.md remove failed:", e);
       }
     });
@@ -507,11 +507,11 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
   // ==================== Section 3: Indexing ====================
   renderIndexingSection(containerEl) {
     const content = this.createCollapsibleSection(containerEl, "Indexing", true);
-    new import_obsidian.Setting(content).setName("Excluded folders").setDesc("Comma-separated list of folders to exclude from indexing").addText((text) => text.setPlaceholder("templates, archive").setValue(this.plugin.settings.excludedFolders.join(", ")).onChange(async (value) => {
+    new import_obsidian.Setting(content).setName("Excluded folders").setDesc("Comma-separated list of folders to exclude from indexing").addText((text) => text.setPlaceholder("Templates, archive").setValue(this.plugin.settings.excludedFolders.join(", ")).onChange(async (value) => {
       this.plugin.settings.excludedFolders = value.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
       await this.plugin.saveSettings();
     }));
-    new import_obsidian.Setting(content).setName("Auto-add UUIDs to notes").setDesc(
+    new import_obsidian.Setting(content).setName("Auto-add IDs to notes").setDesc(
       "When enabled, Smart Relations will automatically add a `uuid` field to the frontmatter of any note that lacks one. Without a UUID, notes are excluded from indexing. This writes to your files \u2014 disabled by default."
     ).addToggle((toggle) => toggle.setValue(this.plugin.settings.autoAddUuids).onChange(async (value) => {
       this.plugin.settings.autoAddUuids = value;
@@ -583,7 +583,7 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
       cls: "sr-section-desc",
       text: "These settings control memory usage and UI responsiveness. Disabling optional indexes saves memory on mobile devices."
     });
-    new import_obsidian.Setting(content).setName("Enable n-gram index").setDesc("Character n-gram index for fuzzy matching. Not used in scoring \u2014 disable to save 15-25 MB of memory.").addToggle((toggle) => toggle.setValue(this.plugin.settings.enableNgramIndex).onChange(async (value) => {
+    new import_obsidian.Setting(content).setName("Enable n-gram index").setDesc("Character n-gram index for fuzzy matching. Not used in scoring; disable to save 15-25 MB of memory.").addToggle((toggle) => toggle.setValue(this.plugin.settings.enableNgramIndex).onChange(async (value) => {
       this.plugin.settings.enableNgramIndex = value;
       await this.plugin.saveSettings();
     }));
@@ -1811,7 +1811,7 @@ var IndexManager = class {
         }
       }
       onProgress == null ? void 0 : onProgress("Building UUID index...", 0.1);
-      const { index: uuidIndex, warnings: uuidWarnings } = await this.uuidIndexer.buildIndex(this.settings.excludedFolders);
+      const { index: uuidIndex, warnings: uuidWarnings } = this.uuidIndexer.buildIndex(this.settings.excludedFolders);
       this.uuidIndex = uuidIndex;
       for (const w of uuidWarnings) console.warn(`Smart Relations: ${w}`);
       const totalFiles = Object.keys(uuidIndex).length;
@@ -2617,7 +2617,7 @@ var RelatedNotesView = class extends import_obsidian6.ItemView {
       return;
     }
     if (!this.getRelatedForFile) {
-      this.renderEmptyState('Index not ready \u2014 run "Reindex vault" first');
+      this.renderEmptyState("Index not ready; please reindex the vault first");
       return;
     }
     this.contentEl.empty();
@@ -2898,7 +2898,7 @@ var SmartRelationsPlugin = class extends import_obsidian8.Plugin {
   async addUuidToCurrentNote() {
     const file = this.app.workspace.getActiveFile();
     if (!file || file.extension !== "md") {
-      new import_obsidian8.Notice("No active markdown note");
+      new import_obsidian8.Notice("No active note");
       return;
     }
     const state = {
@@ -2933,7 +2933,7 @@ var SmartRelationsPlugin = class extends import_obsidian8.Plugin {
       return;
     }
     if (!this.indexManager.isLoaded()) {
-      new import_obsidian8.Notice('Index not ready \u2014 run "Reindex vault" first');
+      new import_obsidian8.Notice("Index not ready; please reindex the vault first");
       return;
     }
     const uuid = this.indexManager.getUuidForFile(file);

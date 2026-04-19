@@ -44,7 +44,7 @@ export class RelatedNotesView extends ItemView {
     }
 
     if (!this.getRelatedForFile) {
-      this.renderEmptyState('Index not ready \u2014 run "Reindex vault" first');
+      this.renderEmptyState('Index not ready; please reindex the vault first');
       return;
     }
 

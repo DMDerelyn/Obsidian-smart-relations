@@ -110,7 +110,7 @@ export class IndexManager {
 
       // Step 1: Build UUID index
       onProgress?.('Building UUID index...', 0.1);
-      const { index: uuidIndex, warnings: uuidWarnings } = await this.uuidIndexer.buildIndex(this.settings.excludedFolders);
+      const { index: uuidIndex, warnings: uuidWarnings } = this.uuidIndexer.buildIndex(this.settings.excludedFolders);
       this.uuidIndex = uuidIndex;
       for (const w of uuidWarnings) console.warn(`Smart Relations: ${w}`);
 

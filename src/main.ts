@@ -239,7 +239,7 @@ export default class SmartRelationsPlugin extends Plugin {
   private async addUuidToCurrentNote(): Promise<void> {
     const file = this.app.workspace.getActiveFile();
     if (!file || file.extension !== 'md') {
-      new Notice('No active markdown note');
+      new Notice('No active note');
       return;
     }
     const state: { wrote: boolean; existingUuid: string | null } = {
@@ -275,7 +275,7 @@ export default class SmartRelationsPlugin extends Plugin {
       return;
     }
     if (!this.indexManager.isLoaded()) {
-      new Notice('Index not ready \u2014 run "Reindex vault" first');
+      new Notice('Index not ready; please reindex the vault first');
       return;
     }
     const uuid = this.indexManager.getUuidForFile(file);

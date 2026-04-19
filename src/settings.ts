@@ -195,7 +195,7 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
         if (container.isConnected) {
           container.empty();
           container.createEl('div', { cls: 'sr-sample-title', text: 'Sample connections' });
-          container.createEl('div', { cls: 'sr-sample-empty', text: 'No notes with UUIDs found' });
+          container.createEl('div', { cls: 'sr-sample-empty', text: 'No indexed notes found' });
         }
         return;
       }
@@ -249,8 +249,8 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
 
     // Folder path setting
     new Setting(content)
-      .setName('Deploy CLAUDE.md to folder')
-      .setDesc('Vault folder where CLAUDE.md will be placed. Leave empty to skip deployment.')
+      .setName('Target folder')
+      .setDesc('Vault folder to place the instructions file in. Leave empty to skip deployment.')
       .addText(text => text
         .setPlaceholder('e.g., Library/Knowledge')
         .setValue(this.plugin.settings.claudeMdFolder)
@@ -296,7 +296,7 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
         new Notice(`CLAUDE.md deployed to ${targetPath}`);
         this.updateDeployStatus(statusEl);
       } catch (e) {
-        new Notice('Failed to deploy CLAUDE.md \u2014 check the folder path');
+        new Notice('Failed to deploy; check the folder path');
         console.error('Smart Relations: CLAUDE.md deploy failed:', e);
       }
     });
@@ -310,13 +310,13 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
         const existing = this.app.vault.getAbstractFileByPath(targetPath);
         if (existing instanceof TFile) {
           await this.app.fileManager.trashFile(existing);
-          new Notice('CLAUDE.md moved to trash');
+          new Notice('Instructions file moved to trash');
         } else {
-          new Notice('CLAUDE.md not found at that location');
+          new Notice('Instructions file not found at that location');
         }
         this.updateDeployStatus(statusEl);
       } catch (e) {
-        new Notice('Failed to remove CLAUDE.md');
+        new Notice('Failed to remove the instructions file');
         console.error('Smart Relations: CLAUDE.md remove failed:', e);
       }
     });
@@ -350,7 +350,7 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
       .setName('Excluded folders')
       .setDesc('Comma-separated list of folders to exclude from indexing')
       .addText(text => text
-        .setPlaceholder('templates, archive')
+        .setPlaceholder('Templates, archive')
         .setValue(this.plugin.settings.excludedFolders.join(', '))
         .onChange(async (value) => {
           this.plugin.settings.excludedFolders = value
@@ -361,7 +361,7 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
         }));
 
     new Setting(content)
-      .setName('Auto-add UUIDs to notes')
+      .setName('Auto-add IDs to notes')
       .setDesc(
         'When enabled, Smart Relations will automatically add a `uuid` field to the frontmatter of any note that lacks one. ' +
         'Without a UUID, notes are excluded from indexing. This writes to your files \u2014 disabled by default.'
@@ -496,7 +496,7 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
 
     new Setting(content)
       .setName('Enable n-gram index')
-      .setDesc('Character n-gram index for fuzzy matching. Not used in scoring \u2014 disable to save 15-25 MB of memory.')
+      .setDesc('Character n-gram index for fuzzy matching. Not used in scoring; disable to save 15-25 MB of memory.')
       .addToggle(toggle => toggle
         .setValue(this.plugin.settings.enableNgramIndex)
         .onChange(async (value) => {

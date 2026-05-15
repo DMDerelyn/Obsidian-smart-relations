@@ -290,39 +290,39 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
   }
   // ==================== Section 1: About & Status ====================
   renderAboutAndStatus(containerEl) {
-    const about = containerEl.createEl("div", { cls: "sr-settings-about" });
+    const about = containerEl.createDiv({ cls: "sr-settings-about" });
     about.createEl("p", {
       cls: "sr-about-desc",
       text: `Build local vectorization indexes for RAG-style retrieval and relation discovery. Entirely offline \u2014 no API calls, no cloud services. Scores notes using BM25, tag similarity, term overlap, and relation graph proximity. (v${this.plugin.manifest.version})`
     });
-    const links = about.createEl("div", { cls: "sr-links" });
+    const links = about.createDiv({ cls: "sr-links" });
     links.createEl("a", {
       text: "GitHub",
       href: "https://github.com/DMDerelyn/Obsidian-smart-relations"
     });
-    links.createEl("span", { text: " \xB7 " });
+    links.createSpan({ text: " \xB7 " });
     links.createEl("a", {
       text: "Documentation",
       href: "https://github.com/DMDerelyn/Obsidian-smart-relations#readme"
     });
     this.renderStatusPanel(about);
-    const sampleEl = about.createEl("div", { cls: "sr-sample-connection" });
-    sampleEl.createEl("div", { cls: "sr-sample-title", text: "Sample connections" });
-    sampleEl.createEl("div", { cls: "sr-sample-loading", text: "Loading..." });
+    const sampleEl = about.createDiv({ cls: "sr-sample-connection" });
+    sampleEl.createDiv({ cls: "sr-sample-title", text: "Sample connections" });
+    sampleEl.createDiv({ cls: "sr-sample-loading", text: "Loading..." });
     void this.renderSampleConnection(sampleEl);
   }
   renderStatusPanel(container) {
     const im = this.plugin.getIndexManager();
-    const panel = container.createEl("div", { cls: "sr-status-panel" });
-    const grid = panel.createEl("div", { cls: "sr-status-grid" });
-    const statusItem = grid.createEl("div", { cls: "sr-stat-item" });
-    statusItem.createEl("span", { cls: "sr-stat-label", text: "Index status" });
+    const panel = container.createDiv({ cls: "sr-status-panel" });
+    const grid = panel.createDiv({ cls: "sr-status-grid" });
+    const statusItem = grid.createDiv({ cls: "sr-stat-item" });
+    statusItem.createSpan({ cls: "sr-stat-label", text: "Index status" });
     if (im.isCurrentlyIndexing()) {
-      statusItem.createEl("span", { cls: "sr-stat-value sr-status-indexing", text: "Indexing..." });
+      statusItem.createSpan({ cls: "sr-stat-value sr-status-indexing", text: "Indexing..." });
     } else if (im.isLoaded()) {
-      statusItem.createEl("span", { cls: "sr-stat-value sr-status-ok", text: "Indexed" });
+      statusItem.createSpan({ cls: "sr-stat-value sr-status-ok", text: "Indexed" });
     } else {
-      statusItem.createEl("span", { cls: "sr-stat-value sr-status-warn", text: "Not indexed" });
+      statusItem.createSpan({ cls: "sr-stat-value sr-status-warn", text: "Not indexed" });
     }
     const corpus = im.getCorpusStats();
     this.addStatItem(grid, "Notes", im.isLoaded() ? `${corpus.totalDocuments}` : "\u2014");
@@ -338,7 +338,7 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
     } else {
       this.addStatItem(grid, "Changes", "\u2014");
     }
-    const actions = panel.createEl("div", { cls: "sr-status-actions" });
+    const actions = panel.createDiv({ cls: "sr-status-actions" });
     const reindexBtn = actions.createEl("button", { cls: "mod-cta", text: "Reindex vault" });
     this.plugin.registerDomEvent(reindexBtn, "click", () => {
       new import_obsidian.Notice("Reindexing vault...");
@@ -351,17 +351,17 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
     });
   }
   addStatItem(grid, label, value) {
-    const item = grid.createEl("div", { cls: "sr-stat-item" });
-    item.createEl("span", { cls: "sr-stat-label", text: label });
-    item.createEl("span", { cls: "sr-stat-value", text: value });
+    const item = grid.createDiv({ cls: "sr-stat-item" });
+    item.createSpan({ cls: "sr-stat-label", text: label });
+    item.createSpan({ cls: "sr-stat-value", text: value });
   }
   async renderSampleConnection(container) {
     const im = this.plugin.getIndexManager();
     if (!im.isLoaded()) {
       if (container.isConnected) {
         container.empty();
-        container.createEl("div", { cls: "sr-sample-title", text: "Sample connections" });
-        container.createEl("div", {
+        container.createDiv({ cls: "sr-sample-title", text: "Sample connections" });
+        container.createDiv({
           cls: "sr-sample-empty",
           text: "No connections available \u2014 index the vault first"
         });
@@ -383,8 +383,8 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
       if (!sourceFile || !sourceUuid) {
         if (container.isConnected) {
           container.empty();
-          container.createEl("div", { cls: "sr-sample-title", text: "Sample connections" });
-          container.createEl("div", { cls: "sr-sample-empty", text: "No indexed notes found" });
+          container.createDiv({ cls: "sr-sample-title", text: "Sample connections" });
+          container.createDiv({ cls: "sr-sample-empty", text: "No indexed notes found" });
         }
         return;
       }
@@ -394,18 +394,18 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
       );
       if (!container.isConnected) return;
       container.empty();
-      container.createEl("div", { cls: "sr-sample-title", text: "Sample connections" });
+      container.createDiv({ cls: "sr-sample-title", text: "Sample connections" });
       if (results.length === 0) {
-        container.createEl("div", { cls: "sr-sample-empty", text: "No connections found for recent notes" });
+        container.createDiv({ cls: "sr-sample-empty", text: "No connections found for recent notes" });
         return;
       }
       const sourceTitle = sourceFile.basename;
       for (const result of results) {
-        const row = container.createEl("div", { cls: "sr-sample-item" });
-        row.createEl("span", { text: sourceTitle });
-        row.createEl("span", { cls: "sr-sample-arrow", text: "\u2192" });
-        row.createEl("span", { text: result.title });
-        row.createEl("span", {
+        const row = container.createDiv({ cls: "sr-sample-item" });
+        row.createSpan({ text: sourceTitle });
+        row.createSpan({ cls: "sr-sample-arrow", text: "\u2192" });
+        row.createSpan({ text: result.title });
+        row.createSpan({
           cls: "sr-sample-score",
           text: result.combinedScore.toFixed(2)
         });
@@ -413,8 +413,8 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
     } catch (e) {
       if (container.isConnected) {
         container.empty();
-        container.createEl("div", { cls: "sr-sample-title", text: "Sample connections" });
-        container.createEl("div", { cls: "sr-sample-empty", text: "Could not load sample connections" });
+        container.createDiv({ cls: "sr-sample-title", text: "Sample connections" });
+        container.createDiv({ cls: "sr-sample-empty", text: "Could not load sample connections" });
       }
     }
   }
@@ -430,9 +430,9 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
       await this.plugin.saveSettings();
       this.updateDeployStatus(statusEl);
     }));
-    const statusEl = content.createEl("div", { cls: "sr-deploy-status" });
+    const statusEl = content.createDiv({ cls: "sr-deploy-status" });
     this.updateDeployStatus(statusEl);
-    const actions = content.createEl("div", { cls: "sr-deploy-actions" });
+    const actions = content.createDiv({ cls: "sr-deploy-actions" });
     const deployBtn = actions.createEl("button", { cls: "mod-cta", text: "Deploy / update" });
     this.plugin.registerDomEvent(deployBtn, "click", async () => {
       const folder = this.plugin.settings.claudeMdFolder.trim();
@@ -529,11 +529,11 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
   // ==================== Section 4: Scoring ====================
   renderScoringSection(containerEl) {
     const content = this.createCollapsibleSection(containerEl, "Scoring");
-    const descRow = content.createEl("div", { cls: "sr-scoring-desc" });
-    descRow.createEl("span", {
+    const descRow = content.createDiv({ cls: "sr-scoring-desc" });
+    descRow.createSpan({
       text: "Adjust how each scoring signal contributes to the final similarity score. "
     });
-    this.weightSumEl = descRow.createEl("span", { cls: "sr-weight-sum" });
+    this.weightSumEl = descRow.createSpan({ cls: "sr-weight-sum" });
     this.updateWeightSum();
     const weightKeys = [
       { key: "bm25", name: "BM25 weight", desc: "Text relevance based on term frequency and document length" },
@@ -601,7 +601,7 @@ var SmartRelationsSettingTab = class extends import_obsidian.PluginSettingTab {
     const details = containerEl.createEl("details", { cls: "sr-settings-section" });
     if (defaultOpen) details.setAttribute("open", "");
     details.createEl("summary", { text: title });
-    return details.createEl("div", { cls: "sr-settings-section-content" });
+    return details.createDiv({ cls: "sr-settings-section-content" });
   }
   formatRelativeTime(timestamp) {
     const diff = Date.now() - timestamp;
@@ -1361,7 +1361,7 @@ var TermIndexer = class {
         totalDocs++;
       }
       if (i + this.batchSize < entries.length) {
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => activeWindow.setTimeout(resolve, 0));
       }
     }
     const corpusStats = {
@@ -1674,7 +1674,7 @@ var DocumentStatsBuilder = class {
   /**
    * Compute stats for a single document given its term postings and word count.
    */
-  computeStats(uuid, termPostings, wordCount, lastModified, idfLookup) {
+  computeStats(_uuid, termPostings, wordCount, lastModified, idfLookup) {
     const uniqueTerms = termPostings.size;
     const avgTermFrequency = uniqueTerms > 0 ? wordCount / uniqueTerms : 0;
     let sumSquared = 0;
@@ -2621,7 +2621,7 @@ var RelatedNotesView = class extends import_obsidian6.ItemView {
       return;
     }
     this.contentEl.empty();
-    const loading = this.contentEl.createEl("div", { cls: "sr-loading" });
+    const loading = this.contentEl.createDiv({ cls: "sr-loading" });
     loading.setText("Finding related notes...");
     try {
       this.results = await this.getRelatedForFile(file);
@@ -2633,8 +2633,8 @@ var RelatedNotesView = class extends import_obsidian6.ItemView {
   }
   renderResults() {
     this.contentEl.empty();
-    const container = this.contentEl.createEl("div", { cls: "smart-relations-container" });
-    const header = container.createEl("div", { cls: "sr-header" });
+    const container = this.contentEl.createDiv({ cls: "smart-relations-container" });
+    const header = container.createDiv({ cls: "sr-header" });
     header.createEl("h4", { text: "Related notes" });
     const refreshBtn = header.createEl("button", { cls: "sr-refresh-btn", attr: { "aria-label": "Refresh" } });
     refreshBtn.setText("\u21BB");
@@ -2642,13 +2642,13 @@ var RelatedNotesView = class extends import_obsidian6.ItemView {
       void this.updateForActiveFile();
     });
     if (this.results.length === 0) {
-      container.createEl("div", { cls: "sr-empty-state", text: "No related notes found" });
+      container.createDiv({ cls: "sr-empty-state", text: "No related notes found" });
       return;
     }
-    const list = container.createEl("div", { cls: "sr-results-list" });
+    const list = container.createDiv({ cls: "sr-results-list" });
     for (const result of this.results) {
-      const item = list.createEl("div", { cls: "sr-result-item" });
-      const titleRow = item.createEl("div", { cls: "sr-result-title-row" });
+      const item = list.createDiv({ cls: "sr-result-item" });
+      const titleRow = item.createDiv({ cls: "sr-result-title-row" });
       const titleEl = titleRow.createEl("a", {
         cls: "sr-result-title",
         text: result.title
@@ -2658,13 +2658,13 @@ var RelatedNotesView = class extends import_obsidian6.ItemView {
         void this.app.workspace.openLinkText(result.path, "");
       });
       const scoreClass = result.combinedScore >= 0.7 ? "sr-score-high" : result.combinedScore >= 0.4 ? "sr-score-mid" : "sr-score-low";
-      titleRow.createEl("span", {
+      titleRow.createSpan({
         cls: `sr-result-score ${scoreClass}`,
         text: result.combinedScore.toFixed(2)
       });
       const details = item.createEl("details", { cls: "sr-result-breakdown" });
       details.createEl("summary", { text: "Score breakdown" });
-      const breakdownList = details.createEl("div", { cls: "sr-breakdown-list" });
+      const breakdownList = details.createDiv({ cls: "sr-breakdown-list" });
       const scoreLabels = [
         { key: "bm25", label: "BM25" },
         { key: "jaccard", label: "Tag similarity" },
@@ -2672,16 +2672,16 @@ var RelatedNotesView = class extends import_obsidian6.ItemView {
         { key: "graphProximity", label: "Graph proximity" }
       ];
       for (const { key, label } of scoreLabels) {
-        const row = breakdownList.createEl("div", { cls: "sr-score-row" });
-        row.createEl("span", { cls: "sr-score-label", text: label });
-        row.createEl("span", { cls: "sr-score-value", text: result.scores[key].toFixed(3) });
+        const row = breakdownList.createDiv({ cls: "sr-score-row" });
+        row.createSpan({ cls: "sr-score-label", text: label });
+        row.createSpan({ cls: "sr-score-value", text: result.scores[key].toFixed(3) });
       }
     }
   }
   renderEmptyState(message) {
     this.contentEl.empty();
-    const container = this.contentEl.createEl("div", { cls: "smart-relations-container" });
-    container.createEl("div", { cls: "sr-empty-state", text: message });
+    const container = this.contentEl.createDiv({ cls: "smart-relations-container" });
+    container.createDiv({ cls: "sr-empty-state", text: message });
   }
 };
 
@@ -2821,7 +2821,8 @@ var SmartRelationsPlugin = class extends import_obsidian8.Plugin {
     return this.scorer;
   }
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const stored = await this.loadData();
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, stored != null ? stored : {});
   }
   async saveSettings() {
     await this.saveData(this.settings);
@@ -2922,8 +2923,9 @@ var SmartRelationsPlugin = class extends import_obsidian8.Plugin {
     }
     if (state.wrote) {
       new import_obsidian8.Notice("UUID added to current note");
-    } else if (state.existingUuid) {
-      new import_obsidian8.Notice(`Note already has a UUID (${state.existingUuid})`);
+    } else if (state.existingUuid !== null) {
+      const existingUuid = state.existingUuid;
+      new import_obsidian8.Notice(`Note already has a UUID (${existingUuid})`);
     }
   }
   async suggestRelations() {

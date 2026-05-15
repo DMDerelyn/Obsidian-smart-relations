@@ -77,19 +77,19 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
   // ==================== Section 1: About & Status ====================
 
   private renderAboutAndStatus(containerEl: HTMLElement): void {
-    const about = containerEl.createEl('div', { cls: 'sr-settings-about' });
+    const about = containerEl.createDiv({ cls: 'sr-settings-about' });
 
     about.createEl('p', {
       cls: 'sr-about-desc',
       text: `Build local vectorization indexes for RAG-style retrieval and relation discovery. Entirely offline \u2014 no API calls, no cloud services. Scores notes using BM25, tag similarity, term overlap, and relation graph proximity. (v${this.plugin.manifest.version})`,
     });
 
-    const links = about.createEl('div', { cls: 'sr-links' });
+    const links = about.createDiv({ cls: 'sr-links' });
     links.createEl('a', {
       text: 'GitHub',
       href: 'https://github.com/DMDerelyn/Obsidian-smart-relations',
     });
-    links.createEl('span', { text: ' \u00B7 ' });
+    links.createSpan({ text: ' \u00B7 ' });
     links.createEl('a', {
       text: 'Documentation',
       href: 'https://github.com/DMDerelyn/Obsidian-smart-relations#readme',
@@ -99,26 +99,26 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
     this.renderStatusPanel(about);
 
     // Sample connections
-    const sampleEl = about.createEl('div', { cls: 'sr-sample-connection' });
-    sampleEl.createEl('div', { cls: 'sr-sample-title', text: 'Sample connections' });
-    sampleEl.createEl('div', { cls: 'sr-sample-loading', text: 'Loading...' });
+    const sampleEl = about.createDiv({ cls: 'sr-sample-connection' });
+    sampleEl.createDiv({ cls: 'sr-sample-title', text: 'Sample connections' });
+    sampleEl.createDiv({ cls: 'sr-sample-loading', text: 'Loading...' });
     void this.renderSampleConnection(sampleEl);
   }
 
   private renderStatusPanel(container: HTMLElement): void {
     const im = this.plugin.getIndexManager();
-    const panel = container.createEl('div', { cls: 'sr-status-panel' });
-    const grid = panel.createEl('div', { cls: 'sr-status-grid' });
+    const panel = container.createDiv({ cls: 'sr-status-panel' });
+    const grid = panel.createDiv({ cls: 'sr-status-grid' });
 
     // Index status
-    const statusItem = grid.createEl('div', { cls: 'sr-stat-item' });
-    statusItem.createEl('span', { cls: 'sr-stat-label', text: 'Index status' });
+    const statusItem = grid.createDiv({ cls: 'sr-stat-item' });
+    statusItem.createSpan({ cls: 'sr-stat-label', text: 'Index status' });
     if (im.isCurrentlyIndexing()) {
-      statusItem.createEl('span', { cls: 'sr-stat-value sr-status-indexing', text: 'Indexing...' });
+      statusItem.createSpan({ cls: 'sr-stat-value sr-status-indexing', text: 'Indexing...' });
     } else if (im.isLoaded()) {
-      statusItem.createEl('span', { cls: 'sr-stat-value sr-status-ok', text: 'Indexed' });
+      statusItem.createSpan({ cls: 'sr-stat-value sr-status-ok', text: 'Indexed' });
     } else {
-      statusItem.createEl('span', { cls: 'sr-stat-value sr-status-warn', text: 'Not indexed' });
+      statusItem.createSpan({ cls: 'sr-stat-value sr-status-warn', text: 'Not indexed' });
     }
 
     // Notes count
@@ -142,7 +142,7 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
     }
 
     // Reindex button
-    const actions = panel.createEl('div', { cls: 'sr-status-actions' });
+    const actions = panel.createDiv({ cls: 'sr-status-actions' });
     const reindexBtn = actions.createEl('button', { cls: 'mod-cta', text: 'Reindex vault' });
     this.plugin.registerDomEvent(reindexBtn, 'click', () => {
       new Notice('Reindexing vault...');
@@ -156,9 +156,9 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
   }
 
   private addStatItem(grid: HTMLElement, label: string, value: string): void {
-    const item = grid.createEl('div', { cls: 'sr-stat-item' });
-    item.createEl('span', { cls: 'sr-stat-label', text: label });
-    item.createEl('span', { cls: 'sr-stat-value', text: value });
+    const item = grid.createDiv({ cls: 'sr-stat-item' });
+    item.createSpan({ cls: 'sr-stat-label', text: label });
+    item.createSpan({ cls: 'sr-stat-value', text: value });
   }
 
   private async renderSampleConnection(container: HTMLElement): Promise<void> {
@@ -166,8 +166,8 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
     if (!im.isLoaded()) {
       if (container.isConnected) {
         container.empty();
-        container.createEl('div', { cls: 'sr-sample-title', text: 'Sample connections' });
-        container.createEl('div', {
+        container.createDiv({ cls: 'sr-sample-title', text: 'Sample connections' });
+        container.createDiv({
           cls: 'sr-sample-empty',
           text: 'No connections available \u2014 index the vault first',
         });
@@ -194,8 +194,8 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
       if (!sourceFile || !sourceUuid) {
         if (container.isConnected) {
           container.empty();
-          container.createEl('div', { cls: 'sr-sample-title', text: 'Sample connections' });
-          container.createEl('div', { cls: 'sr-sample-empty', text: 'No indexed notes found' });
+          container.createDiv({ cls: 'sr-sample-title', text: 'Sample connections' });
+          container.createDiv({ cls: 'sr-sample-empty', text: 'No indexed notes found' });
         }
         return;
       }
@@ -208,20 +208,20 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
       if (!container.isConnected) return; // Settings tab was closed
 
       container.empty();
-      container.createEl('div', { cls: 'sr-sample-title', text: 'Sample connections' });
+      container.createDiv({ cls: 'sr-sample-title', text: 'Sample connections' });
 
       if (results.length === 0) {
-        container.createEl('div', { cls: 'sr-sample-empty', text: 'No connections found for recent notes' });
+        container.createDiv({ cls: 'sr-sample-empty', text: 'No connections found for recent notes' });
         return;
       }
 
       const sourceTitle = sourceFile.basename;
       for (const result of results) {
-        const row = container.createEl('div', { cls: 'sr-sample-item' });
-        row.createEl('span', { text: sourceTitle });
-        row.createEl('span', { cls: 'sr-sample-arrow', text: '\u2192' });
-        row.createEl('span', { text: result.title });
-        row.createEl('span', {
+        const row = container.createDiv({ cls: 'sr-sample-item' });
+        row.createSpan({ text: sourceTitle });
+        row.createSpan({ cls: 'sr-sample-arrow', text: '\u2192' });
+        row.createSpan({ text: result.title });
+        row.createSpan({
           cls: 'sr-sample-score',
           text: result.combinedScore.toFixed(2),
         });
@@ -229,8 +229,8 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
     } catch {
       if (container.isConnected) {
         container.empty();
-        container.createEl('div', { cls: 'sr-sample-title', text: 'Sample connections' });
-        container.createEl('div', { cls: 'sr-sample-empty', text: 'Could not load sample connections' });
+        container.createDiv({ cls: 'sr-sample-title', text: 'Sample connections' });
+        container.createDiv({ cls: 'sr-sample-empty', text: 'Could not load sample connections' });
       }
     }
   }
@@ -261,11 +261,11 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
         }));
 
     // Deploy status
-    const statusEl = content.createEl('div', { cls: 'sr-deploy-status' });
+    const statusEl = content.createDiv({ cls: 'sr-deploy-status' });
     this.updateDeployStatus(statusEl);
 
     // Action buttons
-    const actions = content.createEl('div', { cls: 'sr-deploy-actions' });
+    const actions = content.createDiv({ cls: 'sr-deploy-actions' });
 
     const deployBtn = actions.createEl('button', { cls: 'mod-cta', text: 'Deploy / update' });
     this.plugin.registerDomEvent(deployBtn, 'click', async () => {
@@ -401,11 +401,11 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
   private renderScoringSection(containerEl: HTMLElement): void {
     const content = this.createCollapsibleSection(containerEl, 'Scoring');
 
-    const descRow = content.createEl('div', { cls: 'sr-scoring-desc' });
-    descRow.createEl('span', {
+    const descRow = content.createDiv({ cls: 'sr-scoring-desc' });
+    descRow.createSpan({
       text: 'Adjust how each scoring signal contributes to the final similarity score. ',
     });
-    this.weightSumEl = descRow.createEl('span', { cls: 'sr-weight-sum' });
+    this.weightSumEl = descRow.createSpan({ cls: 'sr-weight-sum' });
     this.updateWeightSum();
 
     const weightKeys: Array<{ key: keyof ScoringWeights; name: string; desc: string }> = [
@@ -537,7 +537,7 @@ export class SmartRelationsSettingTab extends PluginSettingTab {
     const details = containerEl.createEl('details', { cls: 'sr-settings-section' });
     if (defaultOpen) details.setAttribute('open', '');
     details.createEl('summary', { text: title });
-    return details.createEl('div', { cls: 'sr-settings-section-content' });
+    return details.createDiv({ cls: 'sr-settings-section-content' });
   }
 
   private formatRelativeTime(timestamp: number): string {

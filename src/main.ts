@@ -152,7 +152,8 @@ export default class SmartRelationsPlugin extends Plugin {
   }
 
   async loadSettings(): Promise<void> {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const stored = (await this.loadData()) as Partial<SmartRelationsSettings> | null;
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, stored ?? {});
   }
 
   async saveSettings(): Promise<void> {
@@ -263,8 +264,9 @@ export default class SmartRelationsPlugin extends Plugin {
     }
     if (state.wrote) {
       new Notice('UUID added to current note');
-    } else if (state.existingUuid) {
-      new Notice(`Note already has a UUID (${state.existingUuid})`);
+    } else if (state.existingUuid !== null) {
+      const existingUuid: string = state.existingUuid;
+      new Notice(`Note already has a UUID (${existingUuid})`);
     }
   }
 

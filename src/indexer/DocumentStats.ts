@@ -5,7 +5,7 @@ export class DocumentStatsBuilder {
    * Compute stats for a single document given its term postings and word count.
    */
   computeStats(
-    uuid: string,
+    _uuid: string,
     termPostings: Map<string, { tf: number }>,
     wordCount: number,
     lastModified: number,

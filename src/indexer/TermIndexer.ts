@@ -72,7 +72,7 @@ export class TermIndexer {
 
       // Yield to UI thread between batches
       if (i + this.batchSize < entries.length) {
-        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        await new Promise<void>(resolve => activeWindow.setTimeout(resolve, 0));
       }
     }
 

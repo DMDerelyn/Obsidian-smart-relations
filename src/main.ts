@@ -1,4 +1,4 @@
-import { Plugin, TFile, Notice } from 'obsidian';
+import { Plugin, TFile, Notice, WorkspaceLeaf, WorkspaceSidedock } from 'obsidian';
 import { SmartRelationsSettings, DEFAULT_SETTINGS, SmartRelationsSettingTab } from './settings';
 import { IndexManager } from './indexer/IndexManager';
 import { IndexCache } from './utils/cache';
@@ -199,14 +199,19 @@ export default class SmartRelationsPlugin extends Plugin {
   }
 
   private async activateRelatedPanel(): Promise<void> {
-    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_RELATED);
-    if (leaves.length > 0) {
-      await this.app.workspace.revealLeaf(leaves[0]!);
-    } else {
-      const leaf = this.app.workspace.getRightLeaf(false);
+    const workspace = this.app.workspace;
+    let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(VIEW_TYPE_RELATED)[0] ?? null;
+    if (!leaf) {
+      leaf = workspace.getRightLeaf(false);
       if (leaf) {
         await leaf.setViewState({ type: VIEW_TYPE_RELATED, active: true });
-        await this.app.workspace.revealLeaf(leaf);
+      }
+    }
+    if (leaf) {
+      workspace.setActiveLeaf(leaf, { focus: true });
+      const root = leaf.getRoot();
+      if (root instanceof WorkspaceSidedock) {
+        root.expand();
       }
     }
     this.refreshRelatedPanel();

@@ -2862,14 +2862,20 @@ var SmartRelationsPlugin = class extends import_obsidian8.Plugin {
     new import_obsidian8.Notice("Reindex complete");
   }
   async activateRelatedPanel() {
-    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_RELATED);
-    if (leaves.length > 0) {
-      await this.app.workspace.revealLeaf(leaves[0]);
-    } else {
-      const leaf = this.app.workspace.getRightLeaf(false);
+    var _a;
+    const workspace = this.app.workspace;
+    let leaf = (_a = workspace.getLeavesOfType(VIEW_TYPE_RELATED)[0]) != null ? _a : null;
+    if (!leaf) {
+      leaf = workspace.getRightLeaf(false);
       if (leaf) {
         await leaf.setViewState({ type: VIEW_TYPE_RELATED, active: true });
-        await this.app.workspace.revealLeaf(leaf);
+      }
+    }
+    if (leaf) {
+      workspace.setActiveLeaf(leaf, { focus: true });
+      const root = leaf.getRoot();
+      if (root instanceof import_obsidian8.WorkspaceSidedock) {
+        root.expand();
       }
     }
     this.refreshRelatedPanel();
